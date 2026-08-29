@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#0c0f10" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ROTADAN" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="icons/favicon.png" />
+    <title>ROTADAN — Motosiklet, Gezi & Kamp GPS Takip</title>
+    <!-- Yerel Çevrimdışı Harita Kütüphanesi -->
+    <link rel="stylesheet" href="lib/leaflet.css" />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <!-- Üst Bar -->
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="tracking-status">ROTADAN YOLDA</p>
+          <h1>ROTADAN</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="cloud-status-badge online" id="cloud-status-btn" onclick="openCloudSettings()" title="Bulut Durumu">
+            <div class="cloud-dot"></div>
+            <span id="cloud-status-text">Topluluk Aktif</span>
+          </div>
+          <button id="search-friends-top-btn" class="icon-button" onclick="openFriendSearch()" aria-label="Arkadaş Ara" title="Arkadaş Ara">🔍</button>
+          <button id="theme-button" class="icon-button" aria-label="Temayı değiştir">◐</button>
+        </div>
+      </header>
+
+      <!-- ANA SAYFA GÖRÜNÜMÜ -->
+      <section id="home-view" class="view active">
+        <!-- Aktivite Mod Seçici -->
+        <div class="mode-selector" id="mode-selector">
+          <!-- JS ile doldurulacak -->
+        </div>
+
+        <!-- Canlı Takip Haritası -->
+        <div class="map-card">
+          <div id="map" aria-label="Takip Haritası"></div>
+          <div id="tracking-badge" class="tracking-badge">● Hazır</div>
+        </div>
+
+        <!-- Canlı İstatistik Paneli -->
+        <section class="live-panel">
+          <div class="metric-card">
+            <p class="metric-label">MESAFE</p>
+            <strong id="live-distance">0,00 <span class="unit">km</span></strong>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">SÜRE</p>
+            <strong id="live-duration">00:00:00</strong>
+          </div>
+          <div class="metric-card">
+            <p class="metric-label">ORT. HIZ</p>
+            <strong id="live-speed">0 <span class="unit">km/sa</span></strong>
+          </div>
+        </section>
+
+        <!-- Hava Durumu ve Yağmur Radarı Butonu -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin: 4px 0 10px;">
+          <div class="weather-widget" id="live-weather-widget" onclick="refreshLiveWeather()" title="Hava Durumu">
+            <span id="weather-icon">☀️</span>
+            <span id="weather-temp">24°C</span>
+            <span id="weather-desc" style="color:var(--text-muted); font-size:10px;">Açık</span>
+          </div>
+          <button class="radar-toggle-badge" id="radar-toggle-btn" onclick="toggleRainRadar()">🌧️ Yağmur Radarı</button>
+        </div>
+
+        <!-- Kontrol Butonları -->
+        <div class="control-actions">
+          <button id="ride-button" class="primary-button">Sürüşe Başla</button>
+          <button id="camp-button" class="primary-button hidden">⛺ Kamp Noktası Kaydet</button>
+          
+          <!-- Sürüş Esnasındaki İşlem Butonları (Durak ve Fotoğraf Ekleme) -->
+          <div id="active-ride-actions" class="ride-actions-row hidden">
+            <button id="add-stop-btn" class="action-btn stop-action-btn">🛑 Durak Ekle</button>
+            <button id="add-photo-btn" class="action-btn photo-action-btn">📸 Fotoğraf Çek</button>
+          </div>
+          
+          <button id="finish-button" class="secondary-button hidden">Sürüşü Bitir ve Kaydet</button>
+        </div>
+
+        <!-- Hızlı Yol İkazı / Tehlike Bildirimi Barı -->
+        <div class="hazard-quick-bar" id="hazard-quick-bar">
+          <button class="hazard-btn" onclick="reportHazard('micir')" title="Yolda Mıcır / Kaygan Zemin">⚠️ Mıcır</button>
+          <button class="hazard-btn" onclick="reportHazard('radar')" title="Radar / Kontrol Noktası">👮 Radar</button>
+          <button class="hazard-btn" onclick="reportHazard('cukur')" title="Bozuk Asfalt / Çukur">🚧 Bozuk Yol</button>
+          <button class="hazard-btn" onclick="reportHazard('su')" title="İçilebilir Su Pınarı">💧 Su</button>
+          <button class="hazard-btn" onclick="reportHazard('manzara')" title="Manzara & Fotoğraf Noktası">📸 Manzara</button>
+          <button class="hazard-btn" onclick="reportHazard('cay')" title="Çay / Mola Noktası">☕ Mola</button>
+        </div>
+        
+        <!-- Gizli Fotoğraf Yakalama Inputu (Kamerayı Açar) -->
+        <input type="file" id="photo-capture-input" accept="image/*" capture="environment" style="display:none;" />
+        
+        <p id="gps-message" class="status-message">Başlamak için aktivite tipini seçin ve sürüşe basın.</p>
+
+        <!-- Toplam İstatistikler -->
+        <section class="totals">
+          <div class="total-card">
+            <span>Toplam Yol</span>
+            <strong id="total-distance">0 km</strong>
+          </div>
+          <div class="total-card">
+            <span>Gezilerim</span>
+            <strong id="total-rides">0</strong>
+          </div>
+          <div class="total-card">
+            <span>Kamplarım</span>
+            <strong id="total-camps">0</strong>
+          </div>
+        </section>
+      </section>
+
+      <!-- TOPLULUK & AKIŞ GÖRÜNÜMÜ (YENİ!) -->
+      <section id="community-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SOSYAL & KEŞFET</p>
+            <h2>Topluluk Akışı</h2>
+          </div>
+          <button class="primary-button compact-btn" onclick="openFriendSearch()">+ Arkadaş Bul</button>
+        </div>
+
+        <!-- Segment Filtre Sekmeleri -->
+        <div class="subnav-tabs">
+          <button class="subnav-btn active" data-subtab="feed-all" onclick="switchCommunityTab('all')">🌐 Keşfet</button>
+          <button class="subnav-btn" data-subtab="feed-friends" onclick="switchCommunityTab('friends')">👥 Arkadaşlarım</button>
+          <button class="subnav-btn highlight" data-subtab="feed-group" onclick="switchCommunityTab('group')">🚀 Canlı Grup</button>
+          <button class="subnav-btn" data-subtab="feed-leaders" onclick="switchCommunityTab('leaders')">🏆 Liderler</button>
+        </div>
+
+        <!-- 1. Keşfet / Arkadaşlarım Akışı -->
+        <div id="community-feed-container" class="feed-list">
+          <!-- JS ile doldurulacak -->
+        </div>
+
+        <!-- 2. Canlı Grup Sürüşü Paneli (Gizli/Görünür) -->
+        <div id="community-group-container" class="hidden">
+          <div class="group-ride-hero">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <p class="eyebrow" style="color:var(--accent);">CANLI REALTIME SÜRÜŞ</p>
+                <h3 id="group-room-title">Grup Sürüşü Odası</h3>
+              </div>
+              <div class="group-code-badge" id="group-room-code">#----</div>
+            </div>
+            <p style="font-size:12px; color:var(--text-muted);">Grup arkadaşlarınızla aynı harita üzerinde canlı GPS konumlarınızı ve hızlarınızı anlık takip edin.</p>
+            <div style="display:flex; gap:8px;">
+              <button class="primary-button compact-btn" onclick="openCreateGroupRide()">+ Yeni Grup Kur</button>
+              <button class="secondary-button compact-btn" onclick="openJoinGroupRide()">🔑 Koda Katıl</button>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <h3>Gruptaki Sürücüler (<span id="group-member-count">0</span>)</h3>
+            <div class="group-members-grid" id="group-members-grid" style="margin-top:8px;">
+              <!-- JS ile doldurulacak -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Liderlik Tablosu Paneli -->
+        <div id="community-leaders-container" class="hidden">
+          <div class="subsection">
+            <h3>Haftalık Mesafe Liderleri</h3>
+            <div id="leaderboard-list" style="margin-top:10px;">
+              <!-- JS ile doldurulacak -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- GEZİLERİM / ARŞİV GÖRÜNÜMÜ -->
+      <section id="rides-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">ARŞİV</p>
+            <h2>Gezi ve Kamp Günlüğü</h2>
+          </div>
+          <div class="archive-actions">
+            <!-- GPX İçe Aktarma -->
+            <label class="file-input-label" for="gpx-import-file">
+              <span>İçe Aktar (.gpx)</span>
+              <input type="file" id="gpx-import-file" accept=".gpx" style="display:none;" />
+            </label>
+            <button id="clear-rides" class="text-button danger-text">Tümünü sil</button>
+          </div>
+        </div>
+
+        <div class="tab-subsections">
+          <div class="subsection">
+            <h3>Kayıtlı Geziler</h3>
+            <div id="rides-list" class="rides-list"></div>
+          </div>
+          <div class="subsection" style="margin-top: 24px;">
+            <h3>Kayıtlı Kamp Noktaları</h3>
+            <div id="camps-list" class="camps-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ETKİNLİKLER GÖRÜNÜMÜ -->
+      <section id="events-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">TOPLULUK & PLAN</p>
+            <h2>Etkinlik Takvimi</h2>
+          </div>
+          <button id="open-create-event-btn" class="primary-button compact-btn" onclick="openCreateEvent()">+ Yeni Etkinlik</button>
+        </div>
+
+        <div id="events-list" class="events-list">
+          <!-- JS ile doldurulacak -->
+        </div>
+      </section>
+
+      <!-- GENEL HARİTA GÖRÜNÜMÜ -->
+      <section id="all-routes-view" class="view">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">HARİTAM</p>
+            <h2>Tüm Rota ve Kamplar</h2>
+          </div>
+        </div>
+        <div class="map-card-wrapper">
+          <div id="all-routes-map" class="full-map"></div>
+        </div>
+        <p class="status-message">Kaydedilen her rota farklı bir renkte haritada gösterilir.</p>
+      </section>
+
+      <!-- PROFİL GÖRÜNÜMÜ -->
+      <section id="profile-view" class="view">
+
+        <!-- Profil Başlık Kartı -->
+        <div class="profile-hero">
+          <div class="profile-avatar" id="profile-avatar" onclick="openProfileEdit()">🏍</div>
+          <div class="profile-info">
+            <h2 id="profile-name">Gezgin</h2>
+            <p class="profile-since" id="profile-since">ROTADAN Üyesi</p>
+          </div>
+          <button class="profile-edit-btn" onclick="openProfileEdit()" aria-label="Profili Düzenle">✏️</button>
+        </div>
+
+        <!-- Özet İstatistikler -->
+        <div class="profile-stats-grid" id="profile-stats-grid">
+          <!-- JS ile doldurulacak -->
+        </div>
+
+        <!-- Başarı Rozetleri -->
+        <div class="profile-section">
+          <p class="eyebrow">BAŞARILAR</p>
+          <h3 class="profile-section-title">Rozetlerim</h3>
+          <div class="badges-row" id="badges-row">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+
+        <!-- Arkadaşlarım Sekmesi -->
+        <div class="profile-section" id="my-friends-section">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div>
+              <p class="eyebrow">SOSYAL</p>
+              <h3 class="profile-section-title">Arkadaşlarım (<span id="my-friends-count">0</span>)</h3>
+            </div>
+            <button class="text-button" style="color:var(--accent); font-weight:800; font-size:12px;" onclick="openFriendSearch()">+ Ekle</button>
+          </div>
+          <div class="friends-horizontal-list" id="my-friends-list">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+
+        <!-- Fotoğraf Galerisi -->
+        <div class="profile-section" id="gallery-section">
+          <p class="eyebrow">KOLEKSİYON</p>
+          <h3 class="profile-section-title">Fotoğraf Galerisi</h3>
+          <div class="photo-gallery" id="photo-gallery">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+
+        <!-- Son Aktiviteler -->
+        <div class="profile-section">
+          <p class="eyebrow">GEÇMİŞ</p>
+          <h3 class="profile-section-title">Aktivite Akışı</h3>
+          <div class="activity-feed" id="activity-feed">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Alt Navigasyon Menüsü (6 Sekme) -->
+      <nav class="bottom-nav" aria-label="Ana Menü">
+        <button class="nav-item active" data-view="home-view">
+          <span class="nav-icon">⌖</span>
+          <span class="nav-label">Sürüş</span>
+        </button>
+        <button class="nav-item" data-view="community-view">
+          <span class="nav-icon">🌐</span>
+          <span class="nav-label">Topluluk</span>
+        </button>
+        <button class="nav-item" data-view="rides-view">
+          <span class="nav-icon">≋</span>
+          <span class="nav-label">Gezilerim</span>
+        </button>
+        <button class="nav-item" data-view="events-view">
+          <span class="nav-icon">📅</span>
+          <span class="nav-label">Etkinlikler</span>
+        </button>
+        <button class="nav-item" data-view="all-routes-view">
+          <span class="nav-icon">⌁</span>
+          <span class="nav-label">Harita</span>
+        </button>
+        <button class="nav-item" data-view="profile-view" id="profile-nav-btn">
+          <span class="nav-icon">👤</span>
+          <span class="nav-label">Profil</span>
+        </button>
+      </nav>
+    </main>
+
+    <!-- Kayıt İsimlendirme Dialog -->
+    <dialog id="save-dialog">
+      <form method="dialog" class="dialog-content">
+        <p class="eyebrow">SÜRÜŞ TAMAMLANDI</p>
+        <h2>Gezini Kaydet</h2>
+        <div class="summary-badge" id="ride-summary">0.00 km · 00:00:00</div>
+        
+        <div class="input-group">
+          <label for="ride-name">Gezi Adı</label>
+          <input id="ride-name" type="text" maxlength="50" placeholder="Örn. Şile Pazar Turu" autocomplete="off" />
+        </div>
+
+        <div class="input-group">
+          <label>Gizlilik ve Paylaşım</label>
+          <div class="privacy-selector" id="ride-privacy-selector">
+            <div class="privacy-option selected" data-privacy="public" onclick="selectPrivacy('public')">
+              <span>🌐</span>
+              <p>Herkese Açık</p>
+            </div>
+            <div class="privacy-option" data-privacy="friends" onclick="selectPrivacy('friends')">
+              <span>👥</span>
+              <p>Arkadaşlar</p>
+            </div>
+            <div class="privacy-option" data-privacy="private" onclick="selectPrivacy('private')">
+              <span>🔒</span>
+              <p>Gizli</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="dialog-actions">
+          <button value="cancel" class="dialog-button cancel-btn">Vazgeç</button>
+          <button id="confirm-save" value="default" class="dialog-button confirm-btn">Kaydet</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Detay Görünüm Dialog -->
+    <dialog id="details-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow" id="detail-eyebrow">GEZİ DETAYI</p>
+            <h2 id="detail-title">Gezi Adı</h2>
+          </div>
+          <button id="close-details-btn" class="close-icon-button" aria-label="Kapat">✕</button>
+        </div>
+        
+        <div class="detail-stats-grid" id="detail-stats-grid">
+          <!-- JS ile doldurulacak -->
+        </div>
+
+        <!-- Yükseklik ve Eğim Profili Kartı -->
+        <div class="elevation-card" id="detail-elevation-card">
+          <div class="elevation-header">
+            <span class="eyebrow" style="color:var(--accent);">YÜKSEKLİK & EĞİM PROFİLİ</span>
+            <div class="elevation-stats-row">
+              <span class="elevation-stat-chip" id="elev-gain">▲ +0m</span>
+              <span class="elevation-stat-chip" id="elev-loss">▼ -0m</span>
+              <span class="elevation-stat-chip" id="elev-max">Maks: 0m</span>
+            </div>
+          </div>
+          <div class="elevation-canvas-wrapper">
+            <canvas id="elevation-canvas" width="600" height="120"></canvas>
+          </div>
+        </div>
+
+        <div class="dialog-actions vertical-actions">
+          <button id="detail-cinematic-btn" class="dialog-button primary-btn" style="background:linear-gradient(135deg, #e056fd, #686de0); color:#fff;" onclick="playCinematicRide()">🎥 3D Sinematik Oynat (Relive Tarzı)</button>
+          <button id="detail-show-map-btn" class="dialog-button primary-btn">Haritada Göster</button>
+          <button id="detail-gpx-btn" class="dialog-button secondary-btn">GPX Olarak İndir</button>
+          <button id="detail-social-card-btn" class="detail-social-share-btn">🎨 Sosyal Medya Kartı Oluştur</button>
+          <div class="share-actions-row" id="share-actions-row">
+            <button id="detail-share-post-btn" class="dialog-button tertiary-btn">Gönderi Paylaş</button>
+            <button id="detail-share-story-btn" class="dialog-button tertiary-btn">Instagram Hikaye</button>
+          </div>
+          <button id="detail-delete-btn" class="dialog-button danger-btn">Bu Kaydı Sil</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Etkinlik Oluşturma Dialog -->
+    <dialog id="create-event-dialog">
+      <form method="dialog" class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">YENİ ETKİNLİK</p>
+            <h2>Etkinlik Planla</h2>
+          </div>
+          <button id="close-create-event-btn" type="button" class="close-icon-button" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="input-group">
+          <label for="event-title-input">Etkinlik Adı</label>
+          <input id="event-title-input" type="text" maxlength="60" placeholder="Örn. Şile Sahil Gezisi" required autocomplete="off" />
+        </div>
+
+        <div class="input-group">
+          <label for="event-mode-select">Aktivite Türü</label>
+          <select id="event-mode-select" class="custom-select">
+            <option value="moto">🏍 Motosiklet</option>
+            <option value="bike">🚲 Bisiklet</option>
+            <option value="walk">🥾 Yürüyüş</option>
+            <option value="camp">⛺ Kamp</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label for="event-datetime-input">Tarih ve Saat</label>
+          <input id="event-datetime-input" type="datetime-local" required />
+        </div>
+
+        <div class="input-group">
+          <label for="event-location-input">Buluşma Noktası</label>
+          <input id="event-location-input" type="text" maxlength="80" placeholder="Örn. Kadıköy İskele Meydanı" autocomplete="off" />
+        </div>
+
+        <div class="input-group">
+          <label for="event-note-input">Açıklama / Not (Opsiyonel)</label>
+          <input id="event-note-input" type="text" maxlength="120" placeholder="Örn. Depolar dolu buluşuyoruz." autocomplete="off" />
+        </div>
+
+        <div class="dialog-actions" style="margin-top: 12px;">
+          <button id="cancel-create-event-btn" type="button" class="dialog-button cancel-btn">Vazgeç</button>
+          <button id="save-event-btn" type="button" class="dialog-button confirm-btn">Etkinliği Oluştur</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Profil Düzenleme Dialog -->
+    <dialog id="profile-edit-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">PROFİL</p>
+            <h2>Profili Düzenle</h2>
+          </div>
+          <button id="close-profile-edit-btn" class="close-icon-button" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="avatar-picker">
+          <p class="input-group-label">Avatar Seç</p>
+          <div class="avatar-options" id="avatar-options">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+
+        <div class="input-group" style="margin-top: 16px;">
+          <label for="profile-name-input">Kullanıcı Adın</label>
+          <input id="profile-name-input" type="text" maxlength="24" placeholder="Gezgin"
+                 autocomplete="off" />
+        </div>
+
+        <div class="dialog-actions" style="margin-top: 4px;">
+          <button id="cancel-profile-edit-btn" class="dialog-button cancel-btn">Vazgeç</button>
+          <button id="save-profile-btn" class="dialog-button confirm-btn">Kaydet</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Fotoğraf Büyütme Dialog -->
+    <dialog id="photo-zoom-dialog">
+      <div class="photo-zoom-content">
+        <button id="close-photo-zoom-btn" class="close-icon-button photo-zoom-close"
+                aria-label="Kapat">✕</button>
+        <img id="photo-zoom-img" src="" alt="Fotoğraf" />
+        <p class="photo-zoom-caption" id="photo-zoom-caption"></p>
+      </div>
+    </dialog>
+
+    <!-- Sosyal Medya Paylaşım Kartı Dialog -->
+    <dialog id="share-card-dialog">
+      <div class="share-dialog-header">
+        <div>
+          <p class="eyebrow">ROTADAN KARTI</p>
+          <h2>Sosyal Medya Görseli</h2>
+        </div>
+        <button id="close-share-card-btn" class="close-icon-button" aria-label="Kapat">✕</button>
+      </div>
+      <div class="share-dialog-body">
+        <!-- 1080x1080 Canvas Önizlemesi -->
+        <div class="share-canvas-wrapper">
+          <canvas id="share-card-canvas" width="1080" height="1080"></canvas>
+        </div>
+
+        <!-- 3 Fotoğraf Seçim Slotu -->
+        <div class="share-photo-selector">
+          <p>Fotoğraf Ekle (maks. 3)</p>
+          <div class="share-photo-row">
+            <div class="share-photo-slot" id="share-slot-0" onclick="triggerSharePhotoInput(0)">
+              <span class="slot-placeholder">📸</span>
+            </div>
+            <div class="share-photo-slot" id="share-slot-1" onclick="triggerSharePhotoInput(1)">
+              <span class="slot-placeholder">📸</span>
+            </div>
+            <div class="share-photo-slot" id="share-slot-2" onclick="triggerSharePhotoInput(2)">
+              <span class="slot-placeholder">📸</span>
+            </div>
+          </div>
+          <!-- Gizli fotoğraf seçici inputlar -->
+          <input type="file" id="share-photo-input-0" accept="image/*" style="display:none;" onchange="onSharePhotoSelected(event, 0)" />
+          <input type="file" id="share-photo-input-1" accept="image/*" style="display:none;" onchange="onSharePhotoSelected(event, 1)" />
+          <input type="file" id="share-photo-input-2" accept="image/*" style="display:none;" onchange="onSharePhotoSelected(event, 2)" />
+        </div>
+
+        <!-- İndir ve Paylaş Butonları -->
+        <div class="share-dialog-actions">
+          <button class="btn-download-card" onclick="downloadShareCard()">⬇ Galeriye Kaydet</button>
+          <button class="btn-instagram-card" onclick="nativeShareCard('story')" style="background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); color: #fff; border:none; padding: 13px; font-size: 13px; font-weight: 800; border-radius: 14px; cursor: pointer;">📸 Instagram</button>
+          <button class="btn-share-native" onclick="nativeShareCard('all')">📤 Paylaş</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Arkadaş Arama ve Ekleme Dialog -->
+    <dialog id="friend-search-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">TOPLULUK</p>
+            <h2>Gezgin & Arkadaş Bul</h2>
+          </div>
+          <button id="close-friend-search-btn" class="close-icon-button" onclick="$('friend-search-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="friend-search-bar">
+          <input id="friend-search-input" class="friend-search-input" type="text" placeholder="İsim veya kullanıcı adı ara..." oninput="handleFriendSearchInput(event)" autocomplete="off" />
+        </div>
+
+        <div class="subsection">
+          <h3 id="friend-search-results-title">Önerilen Gezginler</h3>
+          <div id="friend-search-results" style="margin-top:10px; max-height:320px; overflow-y:auto;">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Arkadaş Profili ve Rotaları Dialog -->
+    <dialog id="friend-profile-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">GEZGİN PROFİLİ</p>
+            <h2 id="friend-modal-name">Arkadaş Adı</h2>
+          </div>
+          <button class="close-icon-button" onclick="$('friend-profile-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="profile-hero" style="margin-top:4px;">
+          <div class="profile-avatar" id="friend-modal-avatar">🏍</div>
+          <div class="profile-info">
+            <h3 id="friend-modal-title">Gezgin</h3>
+            <p class="profile-since" id="friend-modal-bio">ROTADAN Gezgini</p>
+          </div>
+          <button id="friend-modal-follow-btn" class="btn-follow" onclick="toggleFriendModalFollow()">Takip Et</button>
+        </div>
+
+        <div class="profile-stats-grid" id="friend-modal-stats" style="margin-top:12px;">
+          <!-- JS ile doldurulacak -->
+        </div>
+
+        <div class="subsection" style="margin-top:16px;">
+          <h3>Paylaşılan Rotalar (<span id="friend-modal-rides-count">0</span>)</h3>
+          <div id="friend-modal-rides-list" style="margin-top:10px; max-height:240px; overflow-y:auto;">
+            <!-- JS ile doldurulacak -->
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Canlı Grup Sürüşü Kurma Dialog -->
+    <dialog id="create-group-dialog">
+      <form method="dialog" class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">CANLI GRUP</p>
+            <h2>Yeni Grup Sürüşü Kur</h2>
+          </div>
+          <button class="close-icon-button" type="button" onclick="$('create-group-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="input-group">
+          <label for="group-title-input">Grup Turu Adı</label>
+          <input id="group-title-input" type="text" maxlength="60" placeholder="Örn. Pazar Şile & Ağva Turu" required autocomplete="off" />
+        </div>
+
+        <div class="dialog-actions" style="margin-top:12px;">
+          <button type="button" class="dialog-button cancel-btn" onclick="$('create-group-dialog').close()">Vazgeç</button>
+          <button id="confirm-create-group-btn" type="button" class="dialog-button confirm-btn" onclick="confirmCreateGroup()">Odayı Başlat</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Canlı Grup Sürüşüne Katılma Dialog -->
+    <dialog id="join-group-dialog">
+      <form method="dialog" class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">CANLI GRUP</p>
+            <h2>Grup Odasına Katıl</h2>
+          </div>
+          <button class="close-icon-button" type="button" onclick="$('join-group-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <div class="input-group">
+          <label for="group-code-input">4 Haneli Oda Kodu</label>
+          <input id="group-code-input" type="text" maxlength="8" placeholder="Örn. 8492" style="font-size:20px; letter-spacing:4px; text-transform:uppercase; text-align:center;" required autocomplete="off" />
+        </div>
+
+        <div class="dialog-actions" style="margin-top:12px;">
+          <button type="button" class="dialog-button cancel-btn" onclick="$('join-group-dialog').close()">Vazgeç</button>
+          <button id="confirm-join-group-btn" type="button" class="dialog-button confirm-btn" onclick="confirmJoinGroup()">Gruba Katıl</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Bulut & Supabase Ayarları Dialog -->
+    <dialog id="cloud-settings-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">BULUT & SENKRONİZASYON</p>
+            <h2>Topluluk Bağlantısı</h2>
+          </div>
+          <button class="close-icon-button" onclick="$('cloud-settings-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <div style="background:var(--panel-light); border-radius:14px; padding:14px; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            <div class="cloud-dot" style="background:var(--success); width:9px; height:9px;"></div>
+            <strong style="font-size:14px;">ROTADAN Bulut Motoru: Aktif</strong>
+          </div>
+          <p style="font-size:12px; color:var(--text-muted); line-height:1.4;">Rotalarınız, arkadaş aktiviteleriniz ve canlı grup sürüşleriniz gerçek zamanlı olarak bulutla senkronize edilmektedir.</p>
+        </div>
+
+        <div class="input-group">
+          <label for="custom-supabase-url">Supabase Proje URL (Opsiyonel / Kendi Sunucun)</label>
+          <input id="custom-supabase-url" type="text" placeholder="https://xyz.supabase.co" autocomplete="off" />
+        </div>
+
+        <div class="input-group">
+          <label for="custom-supabase-key">Supabase Anon Key (Opsiyonel)</label>
+          <input id="custom-supabase-key" type="password" placeholder="eyJhbGciOi..." autocomplete="off" />
+        </div>
+
+        <div class="dialog-actions" style="margin-top:8px;">
+          <button class="dialog-button secondary-btn" onclick="resetCloudSettings()">Varsayılana Dön</button>
+          <button class="dialog-button confirm-btn" onclick="saveCloudSettings()">Kaydet & Yenile</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- 3D Sinematik Rota Hikaye Oynatıcısı (Relive Tarzı) -->
+    <dialog id="cinematic-player-dialog">
+      <div class="cinematic-container">
+        <div id="cinematic-map"></div>
+        <div class="cinematic-hud-top">
+          <div class="cinematic-title-box">
+            <h3 id="cinematic-ride-title">Gezi Adı</h3>
+            <p id="cinematic-ride-subtitle">ROTADAN 3D SİNEMATİK OYNATICI</p>
+          </div>
+          <button class="cinematic-close-btn" onclick="closeCinematicPlayer()" aria-label="Kapat">✕</button>
+        </div>
+        
+        <div class="cinematic-photo-popup" id="cinematic-photo-popup">
+          <img id="cinematic-popup-img" src="" alt="Fotoğraf" />
+          <p id="cinematic-popup-text">Fotoğraf</p>
+        </div>
+
+        <div class="cinematic-hud-bottom">
+          <div class="cinematic-metrics-row">
+            <div class="cinematic-metric">
+              <span>MESAFE</span>
+              <strong id="cine-dist">0.0 km</strong>
+            </div>
+            <div class="cinematic-metric">
+              <span>SÜRE</span>
+              <strong id="cine-time">00:00</strong>
+            </div>
+            <div class="cinematic-metric">
+              <span>HIZ</span>
+              <strong id="cine-speed">0 km/s</strong>
+            </div>
+            <div class="cinematic-metric">
+              <span>RAKIM</span>
+              <strong id="cine-elev">0 m</strong>
+            </div>
+          </div>
+          <div class="cinematic-progress-bar">
+            <div class="cinematic-progress-fill" id="cinematic-progress-fill"></div>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Kaza Algılama ve Acil Durum SOS Modalı -->
+    <dialog id="sos-alert-dialog">
+      <div style="text-align:center;">
+        <p class="eyebrow" style="color:#e74c3c; font-size:13px;">⚠️ KAZA VEYA DÜŞÜŞ ALGILANDI!</p>
+        <h2 style="margin-top:4px;">İyi misiniz?</h2>
+        <p style="font-size:12px; color:var(--text-muted); margin-top:6px;">Hareket aniden durdu. 30 saniye içinde iptal edilmezse acil durum kişinize canlı konumunuz iletilecektir.</p>
+        <div class="sos-countdown-circle" id="sos-countdown-num">30</div>
+        <button class="dialog-button danger-btn" style="width:100%; padding:14px; font-size:15px;" onclick="cancelSOS()">İYİYİM / İPTAL ET</button>
+      </div>
+    </dialog>
+
+    <!-- Yerel Çevrimdışı Harita Kütüphanesi -->
+    <script src="lib/leaflet.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

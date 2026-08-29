@@ -1,0 +1,11 @@
+# Git ve Vercel'in yoksayması gereken dosyalar
+android-motoiz/
+work/
+outputs/
+build_apk.sh
+sync.py
+supabase_schema.sql
+*.sh
+.DS_Store
+*.class
+*.dex
