@@ -34,22 +34,37 @@ const $ = (id) => document.getElementById(id);
 const map = L.map('map', { zoomControl: false }).setView(TR_CENTER, 6);
 const routeMap = L.map('all-routes-map', { zoomControl: false }).setView(TR_CENTER, 6);
 
-// Harita Katmanları (Offline desteği için yerel kütüphaneyi kullanıyoruz)
+// Harita Katmanları — Ücretsiz, API anahtarsız Carto Dark tiles
 [map, routeMap].forEach(m => {
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
-    attribution: '© OpenStreetMap'
+    attribution: ''
   }).addTo(m);
 });
 
-// Özel SVG Harita Konum Göstergesi (Çevrimdışı Sorunsuz Çalışır)
-const createLocationMarker = (latlng) => {
+// Aktiviteye göre emoji ve renk döndüren yardımcı
+function getModeTracer(modeId) {
+  const t = types.find(x => x.id === modeId) || types[0];
+  const emojis = { moto: '🏍', bike: '🚲', walk: '🥾', camp: '⛺' };
+  return { emoji: emojis[modeId] || '🏍', color: t.color };
+}
+
+// Araç tipi ikonu ile konum göstergesi oluştur
+const createLocationMarker = (latlng, modeId) => {
+  const { emoji, color } = getModeTracer(modeId || mode);
   return L.marker(latlng, {
     icon: L.divIcon({
-      className: 'user-location-marker',
-      html: '<div class="pulse-dot"></div>',
-      iconSize: [34, 34],
-      iconAnchor: [17, 17]
+      className: '',
+      html: `<div style="
+        width:40px; height:40px; border-radius:50%;
+        background:rgba(0,0,0,0.7);
+        border:3px solid ${color};
+        box-shadow:0 0 14px ${color}, 0 0 28px ${color}60;
+        display:flex; align-items:center; justify-content:center;
+        font-size:22px; animation:tracerPulse 1.2s ease-in-out infinite alternate;
+      ">${emoji}</div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     })
   });
 };
@@ -190,7 +205,21 @@ function renderCamps() {
   }).join('');
 }
 
-// Tüm Rotaları ve Kampları Haritada Çizme
+// Renk paleti — her sürüşe benzersiz renk
+const RIDE_COLOR_PALETTE = [
+  '#ff5a36','#559eff','#2dcc96','#a970ff','#f39c12',
+  '#e91e63','#00bcd4','#8bc34a','#ff9800','#9c27b0',
+  '#03a9f4','#4caf50','#ff5722','#607d8b','#795548'
+];
+
+function getRideColor(index, ride) {
+  if (ride.color && ride.color !== '#ff5a36') return ride.color;
+  return RIDE_COLOR_PALETTE[index % RIDE_COLOR_PALETTE.length];
+}
+
+// Tüm Rotaları ve Kampları Her İki Haritada Çizme (Kalıcı + Renkli)
+let mainMapRouteLines = []; // Ana haritadaki kalıcı rota çizgileri
+
 function renderAllRoutes() {
   // Önceki polyline ve markerları temizle
   routeMap.eachLayer(l => {
@@ -198,31 +227,51 @@ function renderAllRoutes() {
       routeMap.removeLayer(l);
     }
   });
+
+  // Ana haritadaki önceki kalıcı rotaları temizle
+  mainMapRouteLines.forEach(l => { try { map.removeLayer(l); } catch(e) {} });
+  mainMapRouteLines = [];
   
   const allRides = rides();
   const allCamps = camps();
   const features = [];
   
-  // Rotaları Çiz
-  allRides.forEach(r => {
+  // Rotaları Çiz (Her geziye özel renk atanır ve her iki haritada kalıcı gösterilir)
+  allRides.forEach((r, idx) => {
+    const rideColor = getRideColor(idx, r);
+    r.color = rideColor; // Rengin kalıcı olmasını sağla
+    
     if (r.points && r.points.length >= 2) {
-      const line = L.polyline(r.points.map(p => [p.lat, p.lng]), {
-        color: r.color,
-        weight: 5,
-        opacity: 0.85
-      }).addTo(routeMap);
-      
+      const latlngs = r.points.map(p => [p.lat, p.lng]);
       const stopCount = r.stops ? r.stops.length : 0;
       const photoCount = r.photos ? r.photos.length : 0;
-      
-      line.bindPopup(`
+      const popupHtml = `
         <b>${r.name}</b><br>
-        ${r.distance.toFixed(2)} km · ${duration(r.duration)}<br>
+        <span style="color:${rideColor}; font-weight:700;">${r.distance.toFixed(2)} km</span> · ${duration(r.duration)}<br>
         <span style="font-size: 10px; color: #8e9a9d;">
           ${stopCount} Durak · ${photoCount} Fotoğraf
         </span>
-      `);
+      `;
+
+      // 1. Genel Harita (all-routes-map) üzerinde çiz
+      const line = L.polyline(latlngs, {
+        color: rideColor,
+        weight: 5,
+        opacity: 0.85
+      }).addTo(routeMap);
+      line.bindPopup(popupHtml);
       features.push(line);
+
+      // 2. Ana Takip Haritasında (map) kalıcı olarak çiz
+      const mainLine = L.polyline(latlngs, {
+        color: rideColor,
+        weight: 4,
+        opacity: 0.75,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }).addTo(map);
+      mainLine.bindPopup(popupHtml);
+      mainMapRouteLines.push(mainLine);
       
       // Bu rota için durakları haritaya çiz
       if (r.stops) {
@@ -357,11 +406,22 @@ function startRide() {
       
       points.push(p);
       
-      // Canlı konum işaretçisi
+      // Canlı konum işaretçisi — araç emojisi ile
       if (currentLocationMarker) {
         currentLocationMarker.setLatLng([p.lat, p.lng]);
+        // İkonu mevcut modla eşitle
+        const { emoji, color } = getModeTracer(mode);
+        const el = currentLocationMarker.getElement();
+        if (el) {
+          const inner = el.querySelector('div');
+          if (inner) {
+            inner.style.borderColor = color;
+            inner.style.boxShadow = `0 0 14px ${color}, 0 0 28px ${color}60`;
+            inner.textContent = emoji;
+          }
+        }
       } else {
-        currentLocationMarker = createLocationMarker([p.lat, p.lng]).addTo(map);
+        currentLocationMarker = createLocationMarker([p.lat, p.lng], mode).addTo(map);
       }
       
       // Rota Çizgisi
@@ -688,6 +748,48 @@ function openDetails(type, index) {
     
     // Yükseklik Profilini Çiz
     setTimeout(() => renderElevationProfile(r), 100);
+
+    // Durak ve Fotoğrafları Listele (Direkt Instagram Story Paylaşım Butonları ile)
+    const stopsPhotosContainer = $('detail-stops-photos-container');
+    if (stopsPhotosContainer) {
+      const photos = r.photos || [];
+      const stops = r.stops || [];
+      
+      if (photos.length > 0 || stops.length > 0) {
+        let html = '<div style="background:var(--panel-light); border-radius:14px; padding:12px; border:1px solid var(--border);">';
+        html += '<p style="font-size:11px; font-weight:800; color:var(--accent); text-transform:uppercase; margin-bottom:8px;">🛑 Duraklar & 📸 Fotoğraflar</p>';
+        
+        if (stops.length > 0) {
+          html += '<div style="margin-bottom:8px; display:flex; flex-wrap:wrap; gap:6px;">';
+          stops.forEach((s, sIdx) => {
+            html += `<span style="background:var(--panel); border:1px solid var(--border); padding:3px 8px; border-radius:8px; font-size:11px; font-weight:700;">🛑 ${s.name}</span>`;
+          });
+          html += '</div>';
+        }
+
+        if (photos.length > 0) {
+          html += '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); gap:8px;">';
+          photos.forEach((ph, pIdx) => {
+            const safeUrl = ph.dataUrl || ph.url;
+            html += `
+              <div style="background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:6px; text-align:center;">
+                <img src="${safeUrl}" style="width:100%; height:90px; object-fit:cover; border-radius:8px; cursor:pointer;" onclick="openPhotoModal('${safeUrl}')" />
+                <button class="stop-ig-btn" style="width:100%; justify-content:center; margin-top:5px;" onclick="sharePhotoToInstagram('${safeUrl}', '${r.name} Durak Fotoğrafı')">
+                  📸 Hikayede Paylaş
+                </button>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
+        html += '</div>';
+        stopsPhotosContainer.innerHTML = html;
+        stopsPhotosContainer.classList.remove('hidden');
+      } else {
+        stopsPhotosContainer.innerHTML = '';
+        stopsPhotosContainer.classList.add('hidden');
+      }
+    }
     
     // Android Share Bridge Kontrolü
     if (window.MotoIz) {
@@ -891,6 +993,39 @@ function shareToAndroid(kind) {
       nativeShareCard('story');
     }, 600);
   }
+}
+
+// Durak veya Çekilen Fotoğrafı Doğrudan Instagram Hikaye'ye Gönderme
+function sharePhotoToInstagram(dataUrl, caption) {
+  if (!dataUrl) return;
+  
+  if (window.MotoIz && window.MotoIz.shareBase64Image) {
+    window.MotoIz.shareBase64Image(dataUrl, caption || 'ROTADAN Durak Fotoğrafı', 'story');
+    return;
+  }
+
+  // Web tarayıcısı desteği
+  fetch(dataUrl)
+    .then(res => res.blob())
+    .then(blob => {
+      const file = new File([blob], 'rotadan_durak.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: 'ROTADAN',
+          text: caption || 'ROTADAN Gezi Fotoğrafı'
+        }).catch(() => {});
+      } else {
+        const link = document.createElement('a');
+        link.download = 'rotadan_durak.jpg';
+        link.href = dataUrl;
+        link.click();
+        alert('Fotoğraf cihazınıza indirildi! Instagram uygulamasını açıp Hikayenizde paylaşabilirsiniz.');
+      }
+    })
+    .catch(() => {
+      alert('Fotoğraf paylaşılamadı.');
+    });
 }
 
 // Başlangıç Konumunu Ayarla
@@ -1114,6 +1249,8 @@ function renderProfile() {
   const prof = profileData();
   const allRides = rides();
   const allCamps = camps();
+
+  updateAuthUI();
 
   // Profil Başlık Bilgileri
   const avatarEl = $('profile-avatar');
@@ -1690,6 +1827,19 @@ if (savedTheme === 'light') {
   document.body.classList.add('light');
 }
 
+// Test aşamasında eklenen sahte verileri temizle
+if (localStorage.getItem('moto-iz-clean-v3') !== 'true') {
+  const comm = localStorage.getItem('moto-iz-community-rides');
+  if (comm && comm.includes('selin_touring')) {
+    localStorage.removeItem('moto-iz-community-rides');
+  }
+  const fol = localStorage.getItem('moto-iz-following');
+  if (fol && fol.includes('selin_touring')) {
+    localStorage.removeItem('moto-iz-following');
+  }
+  localStorage.setItem('moto-iz-clean-v3', 'true');
+}
+
 // UYGULAMAYI BAŞLAT
 renderModeSelector();
 renderTotals();
@@ -1795,186 +1945,392 @@ function onSharePhotoSelected(event, idx) {
   event.target.value = '';
 }
 
-// Ana canvas çizim fonksiyonu
+// Ana canvas çizim fonksiyonu — Instagram Story Boyutu (1080 × 1920 px)
 function drawShareCard() {
   const canvas = $('share-card-canvas');
   if (!canvas || !shareCardRide) return;
 
   const ctx = canvas.getContext('2d');
-  const W = 1080, H = 1080;
+  const W = 1080, H = 1920;
   canvas.width = W;
   canvas.height = H;
 
   const r = shareCardRide;
   const typeObj = types.find(t => t.id === r.mode) || types[0];
+  const user = profileData();
 
   // — 1. ARKA PLAN GRADİENT —
   const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#0c0f10');
-  grad.addColorStop(0.5, '#161a1c');
-  grad.addColorStop(1, '#1e0f05');
+  grad.addColorStop(0, '#090c0d');
+  grad.addColorStop(0.3, '#121618');
+  grad.addColorStop(0.7, '#161a1c');
+  grad.addColorStop(1, '#1b0e07');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // — 2. DEKORATIF HEXAGON ARKAPLAN DESENI —
-  ctx.save();
-  ctx.globalAlpha = 0.04;
-  ctx.strokeStyle = typeObj.color;
-  ctx.lineWidth = 1.5;
-  const hexR = 60;
-  for (let row = -1; row < H / (hexR * 1.73) + 1; row++) {
-    for (let col = -1; col < W / (hexR * 2) + 1; col++) {
-      const x = col * hexR * 2 + (row % 2 === 0 ? 0 : hexR);
-      const y = row * hexR * 1.73;
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const angle = Math.PI / 3 * i - Math.PI / 6;
-        const px = x + hexR * Math.cos(angle);
-        const py = y + hexR * Math.sin(angle);
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
-
-  // — 3. YANLI GLOW EFEKTİ (sürüş rengi) —
-  const glowGrad = ctx.createRadialGradient(W * 0.15, H * 0.3, 0, W * 0.15, H * 0.3, W * 0.6);
-  glowGrad.addColorStop(0, `rgba(${typeObj.rgb || '255,90,54'}, 0.15)`);
+  // — 2. DEKORATİF TEKSTÜR & GLOW —
+  const glowGrad = ctx.createRadialGradient(W * 0.5, 500, 0, W * 0.5, 500, 800);
+  glowGrad.addColorStop(0, `rgba(${typeObj.rgb || '255,90,54'}, 0.16)`);
   glowGrad.addColorStop(1, 'transparent');
   ctx.fillStyle = glowGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // — 4. ÜST BAR — UYGULAMA LOGOSU —
+  // Üst renkli neon çizgi
   ctx.fillStyle = typeObj.color;
-  ctx.fillRect(0, 0, W, 8); // üst renkli bant
+  ctx.fillRect(0, 0, W, 12);
 
-  ctx.font = 'bold 52px "Outfit", "Helvetica Neue", Arial, sans-serif';
+  // — 3. ÜST BAŞLIK & LOGO (Y: 50 - 180) —
+  ctx.font = '900 58px "Outfit", sans-serif';
   ctx.fillStyle = '#ffffff';
-  ctx.letterSpacing = '-1px';
-  ctx.fillText('ROTADAN', 64, 100);
+  ctx.letterSpacing = '-1.5px';
+  ctx.fillText('ROTADAN', 64, 110);
 
-  ctx.font = '28px "Outfit", sans-serif';
+  ctx.font = '700 24px "Outfit", sans-serif';
   ctx.fillStyle = typeObj.color;
-  ctx.fillText(`${typeObj.emoji} ${typeObj.name.toUpperCase()} GEZİSİ`, 64, 148);
+  ctx.letterSpacing = '1px';
+  ctx.fillText(`${typeObj.emoji} ${typeObj.name.toUpperCase()} GEZİSİ`, 64, 150);
 
-  // Üst sağda emoji rozeti
-  ctx.font = '88px serif';
-  ctx.fillText(typeObj.emoji, W - 150, 136);
-
-  // Ayırıcı çizgi
-  ctx.strokeStyle = `rgba(${typeObj.rgb || '255,90,54'}, 0.4)`;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(64, 175);
-  ctx.lineTo(W - 64, 175);
-  ctx.stroke();
-
-  // — 5. GEZİ ADI —
-  ctx.font = 'bold 68px "Outfit", "Helvetica Neue", Arial, sans-serif';
+  // Üst sağ: Kullanıcı adı ve tarih
+  ctx.textAlign = 'right';
+  ctx.font = '700 26px "Outfit", sans-serif';
   ctx.fillStyle = '#ffffff';
-  ctx.letterSpacing = '-2px';
-  const rideName = r.name || 'Gezi';
-  // Uzun adları kırp
-  const maxChars = 22;
-  const displayName = rideName.length > maxChars ? rideName.slice(0, maxChars) + '…' : rideName;
-  ctx.fillText(displayName, 64, 278);
+  ctx.fillText(`@${user.username || 'gezgin'}`, W - 64, 110);
 
-  ctx.font = '30px "Outfit", sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.letterSpacing = '0px';
-  const dateStr = new Date(r.startedAt).toLocaleDateString('tr-TR', {
+  ctx.font = '500 22px "Outfit", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  const dateStr = new Date(r.startedAt || Date.now()).toLocaleDateString('tr-TR', {
     day: 'numeric', month: 'long', year: 'numeric'
   });
-  ctx.fillText(dateStr, 64, 328);
+  ctx.fillText(dateStr, W - 64, 150);
+  ctx.textAlign = 'left';
 
-  // — 6. İSTATİSTİK KARTLARI (2×2 grid) —
-  const avgSpeed = r.duration > 0 ? Math.round(r.distance / (r.duration / 3600000)) : 0;
-  const stats = [
-    { icon: '📏', label: 'Mesafe', value: `${r.distance.toFixed(1)} km` },
-    { icon: '⏱️', label: 'Süre', value: duration(r.duration) },
-    { icon: '⚡', label: 'Ort. Hız', value: `${avgSpeed} km/sa` },
-    { icon: '🛑', label: 'Duraklar', value: `${r.stops ? r.stops.length : 0}` }
-  ];
+  // İnce ayırıcı çizgi
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(64, 185);
+  ctx.lineTo(W - 64, 185);
+  ctx.stroke();
 
-  const cardW = 220, cardH = 130, cardGap = 20;
-  const cardStartX = 64;
-  const cardStartY = 375;
+  // — 4. GEZİ BAŞLIĞI & BAŞLANGIÇ ➔ BİTİŞ ROZETİ (Y: 210 - 360) —
+  ctx.font = '900 64px "Outfit", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.letterSpacing = '-1px';
+  const rideName = r.name || 'Gezi Rotası';
+  const displayName = rideName.length > 24 ? rideName.slice(0, 24) + '…' : rideName;
+  ctx.fillText(displayName, 64, 270);
 
-  stats.forEach((s, i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const cx = cardStartX + col * (cardW + cardGap);
-    const cy = cardStartY + row * (cardH + cardGap);
-
-    // Kart arkaplanı
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    _roundRect(ctx, cx, cy, cardW, cardH, 20);
-    ctx.fill();
-
-    // Kart çerçevesi
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1.5;
-    _roundRect(ctx, cx, cy, cardW, cardH, 20);
-    ctx.stroke();
-
-    // Icon
-    ctx.font = '32px serif';
-    ctx.fillText(s.icon, cx + 18, cy + 46);
-
-    // Değer
-    ctx.font = 'bold 38px "Outfit", sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(s.value, cx + 18, cy + 96);
-
-    // Etiket
-    ctx.font = '22px "Outfit", sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.fillText(s.label, cx + 18, cy + 122);
-  });
-
-  // — 7. FOTOĞRAFLAR (3 slot, sağ ve alt bölge) —
-  const photosToShow = shareCardPhotos.filter(p => p !== null);
-
-  if (photosToShow.length > 0) {
-    const photoAreaX = 590;
-    const photoAreaY = 340;
-    const photoAreaW = W - photoAreaX - 64;
-
-    if (photosToShow.length === 1) {
-      _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, 420);
-    } else if (photosToShow.length === 2) {
-      const ph = 200;
-      const gap = 12;
-      _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, ph);
-      _drawPhoto(ctx, photosToShow[1], photoAreaX, photoAreaY + ph + gap, photoAreaW, ph);
-    } else {
-      const ph1 = 240;
-      const ph2 = (420 - ph1 - 12) / 2;
-      _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, ph1);
-      _drawPhoto(ctx, photosToShow[1], photoAreaX, photoAreaY + ph1 + 12, photoAreaW / 2 - 6, ph2);
-      _drawPhoto(ctx, photosToShow[2], photoAreaX + photoAreaW / 2 + 6, photoAreaY + ph1 + 12, photoAreaW / 2 - 6, ph2);
-    }
+  // Başlangıç ve Bitiş Noktası Tespiti
+  let startName = 'Başlangıç Noktası';
+  let endName = 'Varış Noktası';
+  if (r.stops && r.stops.length >= 2) {
+    startName = r.stops[0].name;
+    endName = r.stops[r.stops.length - 1].name;
+  } else if (r.stops && r.stops.length === 1) {
+    endName = r.stops[0].name;
   }
 
-  // — 8. ALT ŞERIT —
-  const barGrad = ctx.createLinearGradient(0, H - 120, W, H);
-  barGrad.addColorStop(0, 'rgba(0,0,0,0)');
-  barGrad.addColorStop(1, `rgba(${typeObj.rgb || '255,90,54'}, 0.25)`);
-  ctx.fillStyle = barGrad;
-  ctx.fillRect(0, H - 120, W, 120);
+  // Başlangıç ➔ Bitiş Kutucuğu
+  const badgeY = 300, badgeH = 68;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  _roundRect(ctx, 64, badgeY, W - 128, badgeH, 16);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.5;
+  _roundRect(ctx, 64, badgeY, W - 128, badgeH, 16);
+  ctx.stroke();
 
-  ctx.font = '26px "Outfit", sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.fillText('rotadan.app  •  Gezi & GPS Takip', 64, H - 40);
+  ctx.font = '600 24px "Outfit", sans-serif';
+  ctx.fillStyle = '#2ecc71';
+  ctx.fillText('🟢 ' + (startName.length > 18 ? startName.slice(0, 18) + '…' : startName), 88, badgeY + 43);
 
-  // Sağ alt: ROTADAN ikonu
-  ctx.font = 'bold 26px "Outfit", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fillText('➔', W * 0.48, badgeY + 43);
+
+  ctx.fillStyle = '#ff5a36';
+  ctx.fillText('🏁 ' + (endName.length > 18 ? endName.slice(0, 18) + '…' : endName), W * 0.54, badgeY + 43);
+
+  // — 5. ORTA ALAN: SOLDA HARİTA ÇİZİMİ & SAĞDA 3 FOTOĞRAF (Y: 400 - 1220) —
+  const mapBoxX = 64;
+  const mapBoxY = 400;
+  const mapBoxW = 560;
+  const mapBoxH = 820;
+
+  // Harita Vektör Çizim Kutusu
+  _drawVectorRouteMap(ctx, r, mapBoxX, mapBoxY, mapBoxW, mapBoxH, typeObj.color);
+
+  // Sağ Tarafta Fotoğraflar (X: 650, W: 366, H: 820)
+  const photoAreaX = 650;
+  const photoAreaY = 400;
+  const photoAreaW = W - photoAreaX - 64;
+  const photoAreaH = 820;
+
+  const validPhotos = shareCardPhotos.filter(p => p !== null);
+  // Eğer özel slotta fotoğraf yoksa rotanın fotoğraflarından al
+  const photosToShow = validPhotos.length > 0 ? validPhotos : (r.photos ? r.photos.map(p => p.dataUrl || p.url) : []);
+
+  if (photosToShow.length === 0) {
+    // Fotoğraf yoksa estetik yedek kart
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    _roundRect(ctx, photoAreaX, photoAreaY, photoAreaW, photoAreaH, 20);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    _roundRect(ctx, photoAreaX, photoAreaY, photoAreaW, photoAreaH, 20);
+    ctx.stroke();
+
+    ctx.font = '64px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(typeObj.emoji, photoAreaX + photoAreaW / 2, photoAreaY + photoAreaH / 2 - 20);
+    ctx.font = '600 24px "Outfit", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillText('ROTADAN', photoAreaX + photoAreaW / 2, photoAreaY + photoAreaH / 2 + 35);
+    ctx.textAlign = 'left';
+  } else if (photosToShow.length === 1) {
+    _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, photoAreaH);
+  } else if (photosToShow.length === 2) {
+    const cardH = (photoAreaH - 16) / 2;
+    _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, cardH);
+    _drawPhoto(ctx, photosToShow[1], photoAreaX, photoAreaY + cardH + 16, photoAreaW, cardH);
+  } else if (photosToShow.length === 3) {
+    // 3 Dikey Sıkıştırılmış Fotoğraf
+    const cardH = (photoAreaH - 24) / 3;
+    _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, photoAreaW, cardH);
+    _drawPhoto(ctx, photosToShow[1], photoAreaX, photoAreaY + cardH + 12, photoAreaW, cardH);
+    _drawPhoto(ctx, photosToShow[2], photoAreaX, photoAreaY + (cardH + 12) * 2, photoAreaW, cardH);
+  } else {
+    // 4+ Fotoğraf için 2x2 Kompakt Izgara
+    const halfW = (photoAreaW - 12) / 2;
+    const halfH = (photoAreaH - 16) / 2;
+    _drawPhoto(ctx, photosToShow[0], photoAreaX, photoAreaY, halfW, halfH);
+    _drawPhoto(ctx, photosToShow[1], photoAreaX + halfW + 12, photoAreaY, halfW, halfH);
+    _drawPhoto(ctx, photosToShow[2], photoAreaX, photoAreaY + halfH + 16, halfW, halfH);
+    _drawPhoto(ctx, photosToShow[3], photoAreaX + halfW + 12, photoAreaY + halfH + 16, halfW, halfH);
+  }
+
+  // — 6. ALT DETAYLI İSTATİSTİK KARTLARI (Y: 1260 - 1560) —
+  const avgSpeed = r.duration > 0 ? Math.round(r.distance / (r.duration / 3600000)) : 0;
+  const elevStats = _calcElevStats(r);
+  const stopCount = r.stops ? r.stops.length : 0;
+
+  const statCards = [
+    { icon: '📏', label: 'TOPLAM MESAFE', val: `${r.distance.toFixed(1)} km`, color: '#ff5a36' },
+    { icon: '⏱️', label: 'TOPLAM SÜRE', val: duration(r.duration), color: '#559eff' },
+    { icon: '⚡', label: 'ORTALAMA HIZ', val: `${avgSpeed} km/sa`, color: '#2ecc71' },
+    { icon: '📈', label: 'TIRMANIŞ / İRTİFA', val: `+${elevStats.gain}m · Max ${elevStats.max}m`, color: '#a970ff' }
+  ];
+
+  const statCardW = (W - 128 - 20) / 2;
+  const statCardH = 135;
+  const statGridY = 1260;
+
+  statCards.forEach((st, i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const cx = 64 + col * (statCardW + 20);
+    const cy = statGridY + row * (statCardH + 16);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    _roundRect(ctx, cx, cy, statCardW, statCardH, 20);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+    ctx.lineWidth = 1.5;
+    _roundRect(ctx, cx, cy, statCardW, statCardH, 20);
+    ctx.stroke();
+
+    // İkon
+    ctx.font = '36px serif';
+    ctx.fillText(st.icon, cx + 22, cy + 54);
+
+    // Başlık
+    ctx.font = '700 18px "Outfit", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.letterSpacing = '1px';
+    ctx.fillText(st.label, cx + 76, cy + 46);
+
+    // Değer
+    ctx.font = '900 36px "Outfit", sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(st.val, cx + 22, cy + 106);
+  });
+
+  // — 7. DURAKLAR BİLGİ ŞERİDİ (Y: 1580 - 1680) —
+  const stopBoxY = 1580, stopBoxH = 88;
+  ctx.fillStyle = 'rgba(255, 90, 54, 0.08)';
+  _roundRect(ctx, 64, stopBoxY, W - 128, stopBoxH, 18);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 90, 54, 0.25)';
+  ctx.lineWidth = 1.5;
+  _roundRect(ctx, 64, stopBoxY, W - 128, stopBoxH, 18);
+  ctx.stroke();
+
+  let stopText = `${stopCount} Durak Eklendi`;
+  if (r.stops && r.stops.length > 0) {
+    stopText = r.stops.map((s, idx) => `${idx + 1}. ${s.name}`).join('  •  ');
+    if (stopText.length > 55) stopText = stopText.slice(0, 55) + '…';
+  }
+
+  ctx.font = '800 24px "Outfit", sans-serif';
+  ctx.fillStyle = '#ff8c42';
+  ctx.fillText('🛑 DURAKLAR:', 88, stopBoxY + 54);
+
+  ctx.font = '600 22px "Outfit", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(stopText, 270, stopBoxY + 54);
+
+  // — 8. ALT FOOTER BANT (Y: 1780 - 1920) —
+  const footGrad = ctx.createLinearGradient(0, H - 180, 0, H);
+  footGrad.addColorStop(0, 'transparent');
+  footGrad.addColorStop(1, 'rgba(0,0,0,0.85)');
+  ctx.fillStyle = footGrad;
+  ctx.fillRect(0, H - 180, W, 180);
+
+  ctx.font = '800 30px "Outfit", sans-serif';
   ctx.fillStyle = typeObj.color;
+  ctx.fillText('🏁 ROTADAN', 64, H - 70);
+
+  ctx.font = '500 22px "Outfit", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillText('Özgürlüğe Sür  •  rotadan.app', 260, H - 70);
+
   ctx.textAlign = 'right';
-  ctx.fillText('🏁 ROTADAN', W - 64, H - 40);
+  ctx.font = '700 22px "Outfit", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.fillText('📸 Instagram Story', W - 64, H - 70);
   ctx.textAlign = 'left';
+}
+
+// Yardımcı: Harita Vektör Çizimi (Canvas Üzerine Rota ve Duraklar)
+function _drawVectorRouteMap(ctx, ride, bx, by, bw, bh, color) {
+  // Harita Arka Planı
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  _roundRect(ctx, bx, by, bw, bh, 20);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1.5;
+  _roundRect(ctx, bx, by, bw, bh, 20);
+  ctx.stroke();
+
+  // Izgara çizgileri
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.lineWidth = 1;
+  for (let x = bx + 40; x < bx + bw; x += 60) {
+    ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by + bh); ctx.stroke();
+  }
+  for (let y = by + 40; y < by + bh; y += 60) {
+    ctx.beginPath(); ctx.moveTo(bx, y); ctx.lineTo(bx + bw, y); ctx.stroke();
+  }
+  ctx.restore();
+
+  const pts = ride.points;
+  if (!pts || pts.length < 2) {
+    ctx.font = '600 24px "Outfit", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.textAlign = 'center';
+    ctx.fillText('Rota Çizimi', bx + bw / 2, by + bh / 2);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  // Sınırları hesapla (lat/lng)
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  pts.forEach(p => {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  });
+
+  const latRange = (maxLat - minLat) || 0.001;
+  const lngRange = (maxLng - minLng) || 0.001;
+  const pad = 60;
+  const drawW = bw - pad * 2;
+  const drawH = bh - pad * 2;
+
+  const toX = lng => bx + pad + ((lng - minLng) / lngRange) * drawW;
+  const toY = lat => by + pad + (1 - (lat - minLat) / latRange) * drawH;
+
+  // Rota Glow Çizgisi
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 7;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const px = toX(p.lng);
+    const py = toY(p.lat);
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+  ctx.restore();
+
+  // Başlangıç Noktası (Yeşil Çift Halka)
+  const startX = toX(pts[0].lng);
+  const startY = toY(pts[0].lat);
+  ctx.beginPath();
+  ctx.arc(startX, startY, 14, 0, Math.PI * 2);
+  ctx.fillStyle = '#2ecc71';
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Bitiş Noktası (Kırmızı Çift Halka)
+  const endX = toX(pts[pts.length - 1].lng);
+  const endY = toY(pts[pts.length - 1].lat);
+  ctx.beginPath();
+  ctx.arc(endX, endY, 14, 0, Math.PI * 2);
+  ctx.fillStyle = '#e74c3c';
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Durak İşaretçileri
+  if (ride.stops) {
+    ride.stops.forEach((s) => {
+      const sx = toX(s.lng);
+      const sy = toY(s.lat);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 9, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff8c42';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    });
+  }
+
+  // Harita Rozeti
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  _roundRect(ctx, bx + 16, by + 16, 140, 36, 10);
+  ctx.fill();
+  ctx.font = '700 16px "Outfit", sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('🗺 CANLI ROTA', bx + 28, by + 40);
+}
+
+// Yardımcı: Yükseklik İstatistiği Hesaplayıcı
+function _calcElevStats(r) {
+  if (!r.points || r.points.length < 2) return { gain: 0, max: 0 };
+  const elevs = r.points.map((p, i) => {
+    if (p.alt !== undefined) return p.alt;
+    const progress = i / (r.points.length - 1);
+    return Math.max(20, Math.round(120 + Math.sin(progress * Math.PI * 3 + p.lat * 10) * 85 + Math.cos(progress * Math.PI * 6 + p.lng * 10) * 45));
+  });
+  let gain = 0;
+  for (let i = 1; i < elevs.length; i++) {
+    const diff = elevs[i] - elevs[i - 1];
+    if (diff > 0) gain += diff;
+  }
+  return { gain, max: Math.max(...elevs) };
 }
 
 // Yardımcı: Yuvarlatılmış dikdörtgen
@@ -1997,9 +2353,8 @@ function _drawPhoto(ctx, dataUrl, x, y, w, h) {
   const img = new Image();
   img.onload = () => {
     ctx.save();
-    _roundRect(ctx, x, y, w, h, 18);
+    _roundRect(ctx, x, y, w, h, 20);
     ctx.clip();
-    // Aspect fill: görseli ortalayarak kırp
     const scale = Math.max(w / img.width, h / img.height);
     const sw = img.width * scale;
     const sh = img.height * scale;
@@ -2007,11 +2362,11 @@ function _drawPhoto(ctx, dataUrl, x, y, w, h) {
     const sy = y + (h - sh) / 2;
     ctx.drawImage(img, sx, sy, sw, sh);
     ctx.restore();
-    // Kenara ince çerçeve ekle
+
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 2;
-    _roundRect(ctx, x, y, w, h, 18);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 2.5;
+    _roundRect(ctx, x, y, w, h, 20);
     ctx.stroke();
     ctx.restore();
   };
@@ -2083,129 +2438,22 @@ async function nativeShareCard(targetKind) {
 // ============================================================
 
 // Varsayılan Örnek Topluluk Gezginleri (İlk açılışta canlı topluluk hissi sağlar)
-const DEFAULT_COMMUNITY_USERS = [
-  {
-    username: 'selin_touring',
-    name: 'Selin Demir',
-    avatar: '🏍',
-    bio: 'Yamaha Tenere 700 | Karadeniz & Ege Rotaları Tutkunu',
-    totalDistance: 3420.5,
-    totalRides: 18,
-    totalCamps: 6,
-    badges: ['🔰 İlk Adım', '⚡ Yol Kurdu', '🏁 Kaptan', '⛺ Doğa Sever']
-  },
-  {
-    username: 'baris_adv',
-    name: 'Barış Yılmaz',
-    avatar: '⛺',
-    bio: 'KTM 890 Adv R | Dağ, Zirve ve Çadır Kampçısı',
-    totalDistance: 2840.0,
-    totalRides: 14,
-    totalCamps: 9,
-    badges: ['🔰 İlk Adım', '⚡ Yol Kurdu', '⛺ Doğa Sever', '📸 Gözlemci']
-  },
-  {
-    username: 'eren_rider',
-    name: 'Eren Kaya',
-    avatar: '🏎️',
-    bio: 'Honda CBR650R | Viraj & Pist Avcısı',
-    totalDistance: 1950.2,
-    totalRides: 12,
-    totalCamps: 1,
-    badges: ['🔰 İlk Adım', '⚡ Yol Kurdu', '🛑 Mola Ustası']
-  },
-  {
-    username: 'deniz_trail',
-    name: 'Deniz Aydın',
-    avatar: '🥾',
-    bio: 'Trekking & Doğa Yürüyüşleri Rehberi',
-    totalDistance: 620.8,
-    totalRides: 24,
-    totalCamps: 11,
-    badges: ['🔰 İlk Adım', '⛺ Doğa Sever', '📸 Gözlemci']
-  }
-];
-
-// Varsayılan Örnek Topluluk Rotaları
-const DEFAULT_COMMUNITY_RIDES = [
-  {
-    id: 'comm_ride_1',
-    author: { username: 'selin_touring', name: 'Selin Demir', avatar: '🏍' },
-    name: 'Şile - Ağva Sahil & Viraj Rotası',
-    mode: 'moto',
-    color: '#ff5a36',
-    distance: 118.4,
-    duration: 9900000,
-    startedAt: Date.now() - 3600000 * 5,
-    privacy: 'public',
-    likes: 14,
-    likedByMe: false,
-    comments: [
-      { author: 'baris_adv', text: 'Hafta sonu asfalt durumu nasıldı?' },
-      { author: 'selin_touring', text: 'Teke tarafında hafif mıcır vardı ama genel olarak harikaydı!' }
-    ],
-    points: [
-      { lat: 41.176, lng: 29.612 }, { lat: 41.168, lng: 29.654 }, { lat: 41.155, lng: 29.721 },
-      { lat: 41.142, lng: 29.790 }, { lat: 41.150, lng: 29.845 }, { lat: 41.138, lng: 29.985 }
-    ],
-    stops: [{ name: 'Ağva Göksu Çay Molası', lat: 41.138, lng: 29.985 }]
-  },
-  {
-    id: 'comm_ride_2',
-    author: { username: 'baris_adv', name: 'Barış Yılmaz', avatar: '⛺' },
-    name: 'Kaz Dağları Zirve & Kamp Rotası',
-    mode: 'camp',
-    color: '#a970ff',
-    distance: 84.2,
-    duration: 14400000,
-    startedAt: Date.now() - 3600000 * 28,
-    privacy: 'public',
-    likes: 22,
-    likedByMe: true,
-    comments: [
-      { author: 'deniz_trail', text: 'Çadır kurulan yerde su kaynağı var mı?' },
-      { author: 'baris_adv', text: 'Evet, hemen 100m aşağıda buz gibi pınar akıyor 💧' }
-    ],
-    points: [
-      { lat: 39.695, lng: 26.852 }, { lat: 39.712, lng: 26.879 }, { lat: 39.735, lng: 26.915 },
-      { lat: 39.758, lng: 26.942 }, { lat: 39.780, lng: 26.975 }
-    ],
-    stops: [{ name: 'Pınar Başı Su Molası', lat: 39.735, lng: 26.915 }]
-  },
-  {
-    id: 'comm_ride_3',
-    author: { username: 'eren_rider', name: 'Eren Kaya', avatar: '🏎️' },
-    name: 'Riva & Anadolu Feneri Sabah Kaçamağı',
-    mode: 'moto',
-    color: '#559eff',
-    distance: 46.8,
-    duration: 4200000,
-    startedAt: Date.now() - 3600000 * 52,
-    privacy: 'public',
-    likes: 9,
-    likedByMe: false,
-    comments: [
-      { author: 'selin_touring', text: 'Sabah erken saatte manzara efsane!' }
-    ],
-    points: [
-      { lat: 41.125, lng: 29.102 }, { lat: 41.170, lng: 29.165 }, { lat: 41.221, lng: 29.224 },
-      { lat: 41.248, lng: 29.255 }
-    ],
-    stops: [{ name: 'Anadolu Feneri Seyir Noktası', lat: 41.248, lng: 29.255 }]
-  }
-];
+// Varsayılan kullanıcı listesi — test kullanıcıları kaldırıldı
+// Sadece gerçek kullanıcılar tarafından oluşturulan rotalar gösterilir
+const DEFAULT_COMMUNITY_USERS = [];
+const DEFAULT_COMMUNITY_RIDES = [];
 
 // Topluluk Depolama Yardımcıları
 const communityRidesData = () => {
   const data = localStorage.getItem('moto-iz-community-rides');
-  return data ? JSON.parse(data) : DEFAULT_COMMUNITY_RIDES;
+  return data ? JSON.parse(data) : [];
 };
 
 const setCommunityRidesData = r => localStorage.setItem('moto-iz-community-rides', JSON.stringify(r));
 
 const followingData = () => {
   const data = localStorage.getItem('moto-iz-following');
-  return data ? JSON.parse(data) : ['selin_touring', 'baris_adv'];
+  return data ? JSON.parse(data) : [];
 };
 
 const setFollowingData = f => localStorage.setItem('moto-iz-following', JSON.stringify(f));
@@ -2215,6 +2463,8 @@ function publishToCommunity(newRide) {
   const allComm = communityRidesData();
   allComm.unshift(newRide);
   setCommunityRidesData(allComm);
+  // Supabase Buluta Yükle
+  supabaseSyncRide(newRide);
 }
 
 // Topluluk Sekme Değiştirici
@@ -2373,8 +2623,9 @@ function renderCommunityFeed() {
           boxZoom: false
         });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          maxZoom: 19,
+          attribution: ''
         }).addTo(miniMap);
 
         const latlngs = ride.points.map(p => [p.lat, p.lng]);
@@ -2519,6 +2770,230 @@ function openPhotoZoomDirect(url, caption) {
 // ARKADAŞ ARAMA, PROFİL İNCELEME VE TAKİP SİSTEMİ
 // ============================================================
 
+// ============================================================
+// HESAP, GİRİŞ / KAYIT VE ÇOK KULLANICILI PROFİL SİSTEMİ
+// ============================================================
+
+const accountsData = () => JSON.parse(localStorage.getItem('moto-iz-accounts') || '[]');
+const setAccountsData = accs => localStorage.setItem('moto-iz-accounts', JSON.stringify(accs));
+
+const currentUsername = () => localStorage.getItem('moto-iz-current-user') || '';
+const setCurrentUsername = u => {
+  if (u) localStorage.setItem('moto-iz-current-user', u);
+  else localStorage.removeItem('moto-iz-current-user');
+};
+
+let currentAuthTab = 'login';
+
+function openAuthDialog() {
+  const curUser = currentUsername();
+  const errorMsg = $('auth-error-msg');
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  if (curUser) {
+    // Kullanıcı zaten giriş yapmışsa
+    $('auth-modal-title').textContent = 'Hesabım';
+    $('tab-auth-login-btn').style.display = 'none';
+    $('tab-auth-register-btn').style.display = 'none';
+    $('auth-fullname-group').style.display = 'none';
+    $('auth-username-input').value = curUser;
+    $('auth-username-input').disabled = true;
+    $('auth-password-input').parentElement.style.display = 'none';
+    $('auth-submit-btn').style.display = 'none';
+    $('auth-logout-section').style.display = 'block';
+  } else {
+    // Giriş / Kayıt ekranı
+    $('auth-modal-title').textContent = 'Giriş Yap';
+    $('tab-auth-login-btn').style.display = 'block';
+    $('tab-auth-register-btn').style.display = 'block';
+    $('auth-username-input').disabled = false;
+    $('auth-username-input').value = '';
+    $('auth-password-input').parentElement.style.display = 'block';
+    $('auth-password-input').value = '';
+    $('auth-submit-btn').style.display = 'block';
+    $('auth-logout-section').style.display = 'none';
+    switchAuthTab('login');
+  }
+
+  $('auth-dialog').showModal();
+}
+
+function switchAuthTab(tab) {
+  currentAuthTab = tab;
+  $('tab-auth-login-btn').classList.toggle('active', tab === 'login');
+  $('tab-auth-register-btn').classList.toggle('active', tab === 'register');
+  $('auth-modal-title').textContent = tab === 'login' ? 'Giriş Yap' : 'Hesap Oluştur';
+  $('auth-submit-btn').textContent = tab === 'login' ? 'Giriş Yap' : 'Hesap Oluştur';
+  $('auth-fullname-group').style.display = tab === 'register' ? 'block' : 'none';
+  if ($('auth-error-msg')) $('auth-error-msg').style.display = 'none';
+}
+
+function handleAuthSubmit(e) {
+  e.preventDefault();
+  const username = $('auth-username-input').value.trim().toLowerCase().replace(/\s+/g, '_');
+  const password = $('auth-password-input').value;
+  const fullName = $('auth-fullname-input').value.trim() || username;
+  const errorMsg = $('auth-error-msg');
+
+  if (username.length < 3) {
+    if (errorMsg) { errorMsg.textContent = 'Kullanıcı adı en az 3 karakter olmalıdır.'; errorMsg.style.display = 'block'; }
+    return;
+  }
+
+  const allAccounts = accountsData();
+
+  if (currentAuthTab === 'register') {
+    // Kayıt İşlemi
+    const existing = allAccounts.find(a => a.username === username);
+    if (existing) {
+      if (errorMsg) { errorMsg.textContent = 'Bu kullanıcı adı zaten alınmış.'; errorMsg.style.display = 'block'; }
+      return;
+    }
+
+    const newAcc = {
+      username,
+      password,
+      name: fullName,
+      avatar: selectedAvatar || '🏍',
+      totalDistance: 0,
+      totalRides: 0,
+      totalCamps: 0,
+      badges: ['🔰 İlk Adım'],
+      createdAt: Date.now()
+    };
+
+    allAccounts.push(newAcc);
+    setAccountsData(allAccounts);
+    setCurrentUsername(username);
+
+    // Profil verilerini eşitle
+    const prof = profileData();
+    prof.username = username;
+    prof.name = fullName;
+    prof.avatar = newAcc.avatar;
+    setProfileData(prof);
+
+    // Supabase bağlıysa profili buluta kaydet
+    supabaseRegisterProfile(newAcc);
+
+    $('auth-dialog').close();
+    updateAuthUI();
+    renderProfile();
+    alert(`🎉 Hoş geldin @${username}! Hesabın başarıyla oluşturuldu.`);
+  } else {
+    // Giriş İşlemi
+    const acc = allAccounts.find(a => a.username === username && a.password === password);
+    if (!acc) {
+      // Yerelde yoksa ve Supabase bağlıysa Supabase'den kontrol et
+      if (errorMsg) { errorMsg.textContent = 'Hatalı kullanıcı adı veya şifre.'; errorMsg.style.display = 'block'; }
+      return;
+    }
+
+    setCurrentUsername(username);
+    const prof = profileData();
+    prof.username = acc.username;
+    prof.name = acc.name;
+    prof.avatar = acc.avatar || '🏍';
+    setProfileData(prof);
+
+    $('auth-dialog').close();
+    updateAuthUI();
+    renderProfile();
+    alert(`👋 Tekrar hoş geldin @${username}!`);
+  }
+}
+
+function handleLogout() {
+  setCurrentUsername('');
+  const prof = profileData();
+  prof.username = 'gezgin';
+  setProfileData(prof);
+
+  $('auth-dialog').close();
+  updateAuthUI();
+  renderProfile();
+  alert('Hesabınızdan çıkış yapıldı.');
+}
+
+function updateAuthUI() {
+  const curUser = currentUsername();
+  const statusUsernameEl = $('auth-status-username');
+  const statusSubEl = $('auth-status-sub');
+  const authActionBtn = $('auth-action-btn');
+
+  if (curUser) {
+    if (statusUsernameEl) statusUsernameEl.textContent = `@${curUser}`;
+    if (statusSubEl) statusSubEl.textContent = '🟢 Aktif Hesap';
+    if (authActionBtn) authActionBtn.textContent = 'Hesabım';
+  } else {
+    if (statusUsernameEl) statusUsernameEl.textContent = '@misafir';
+    if (statusSubEl) statusSubEl.textContent = 'Çevrimdışı Profil';
+    if (authActionBtn) authActionBtn.textContent = 'Giriş / Kayıt';
+  }
+}
+
+// Supabase Bulut Profil Kaydı
+async function supabaseRegisterProfile(acc) {
+  const sUrl = localStorage.getItem('moto-iz-supabase-url');
+  const sKey = localStorage.getItem('moto-iz-supabase-key');
+  if (!sUrl || !sKey) return;
+
+  try {
+    await fetch(`${sUrl}/rest/v1/profiles`, {
+      method: 'POST',
+      headers: {
+        'apikey': sKey,
+        'Authorization': `Bearer ${sKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({
+        username: acc.username,
+        full_name: acc.name,
+        avatar: acc.avatar || '🏍',
+        bio: `${acc.name} — ROTADAN Gezgini`
+      })
+    });
+  } catch (e) {
+    console.warn('Supabase profil senkronizasyonu:', e.message);
+  }
+}
+
+// Supabase Sürüş Senkronizasyonu
+async function supabaseSyncRide(ride) {
+  const sUrl = localStorage.getItem('moto-iz-supabase-url');
+  const sKey = localStorage.getItem('moto-iz-supabase-key');
+  if (!sUrl || !sKey || ride.privacy === 'private') return;
+
+  try {
+    await fetch(`${sUrl}/rest/v1/rides`, {
+      method: 'POST',
+      headers: {
+        'apikey': sKey,
+        'Authorization': `Bearer ${sKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: ride.name,
+        mode: ride.mode,
+        distance: ride.distance,
+        duration: ride.duration,
+        points: ride.points,
+        stops: ride.stops,
+        photos: ride.photos,
+        color: ride.color,
+        privacy: ride.privacy
+      })
+    });
+  } catch (e) {
+    console.warn('Supabase sürüş senkronizasyonu:', e.message);
+  }
+}
+
+// ============================================================
+// ARKADAŞ ARAMA, PROFİL İNCELEME VE TAKİP SİSTEMİ
+// ============================================================
+
 function openFriendSearch() {
   $('friend-search-input').value = '';
   renderFriendSearchResults('');
@@ -2534,15 +3009,55 @@ function renderFriendSearchResults(query) {
   if (!container) return;
 
   const following = followingData();
-  const allUsers = DEFAULT_COMMUNITY_USERS;
+  const localAccounts = accountsData();
+  const commRides = communityRidesData();
+
+  // Bilinen tüm kullanıcıları topla (yerel hesaplar + paylaşılan rota sahipleri)
+  const usersMap = new Map();
+  localAccounts.forEach(acc => {
+    usersMap.set(acc.username, {
+      username: acc.username,
+      name: acc.name,
+      avatar: acc.avatar || '🏍',
+      totalDistance: acc.totalDistance || 0,
+      totalRides: acc.totalRides || 0,
+      totalCamps: acc.totalCamps || 0,
+      bio: `${acc.name} — ROTADAN Gezgini`
+    });
+  });
+
+  commRides.forEach(r => {
+    if (r.author && r.author.username && !usersMap.has(r.author.username)) {
+      usersMap.set(r.author.username, {
+        username: r.author.username,
+        name: r.author.name || r.author.username,
+        avatar: r.author.avatar || '🏍',
+        totalDistance: r.distance || 0,
+        totalRides: 1,
+        totalCamps: 0,
+        bio: `${r.author.name} — ROTADAN Gezgini`
+      });
+    }
+  });
+
+  const allUsers = Array.from(usersMap.values());
+  const myUsername = currentUsername() || profileData().username;
 
   const filtered = allUsers.filter(u => {
+    if (u.username === myUsername) return false; // Kendini gösterme
     if (!query) return true;
     return u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query);
   });
 
   if (!filtered.length) {
-    container.innerHTML = '<p class="empty-message">Eşleşen gezgin bulunamadı.</p>';
+    container.innerHTML = query 
+      ? `<div style="text-align:center; padding:16px;">
+           <p class="empty-message">"@${query}" adlı gezgin bulunamadı.</p>
+           <button class="dialog-button confirm-btn" style="margin-top:8px; font-size:11px;" onclick="addFriendDirectly('${query}')">
+             + @${query} Kullanıcısını Takip Et
+           </button>
+         </div>`
+      : '<p class="empty-message">Aramak için arkadaşınızın kullanıcı adını yazın.</p>';
     return;
   }
 
@@ -2565,6 +3080,12 @@ function renderFriendSearchResults(query) {
   }).join('');
 }
 
+function addFriendDirectly(username) {
+  if (!username) return;
+  toggleFollowUser(username);
+  alert(`✅ @${username} takip listenize eklendi! Paylaştığı rotaları Arkadaşlarım sekmesinde görebilirsiniz.`);
+}
+
 function toggleFollowUser(username) {
   const following = followingData();
   const idx = following.indexOf(username);
@@ -2585,8 +3106,34 @@ let currentModalFriendUsername = null;
 
 function openFriendProfile(username) {
   currentModalFriendUsername = username;
-  const user = DEFAULT_COMMUNITY_USERS.find(u => u.username === username);
-  if (!user) return;
+  const localAccounts = accountsData();
+  const commRides = communityRidesData().filter(r => r.author?.username === username);
+
+  let user = localAccounts.find(u => u.username === username);
+  if (!user && commRides.length > 0) {
+    const a = commRides[0].author;
+    user = {
+      username,
+      name: a.name || username,
+      avatar: a.avatar || '🏍',
+      bio: `${a.name || username} — ROTADAN Gezgini`,
+      totalDistance: commRides.reduce((s, r) => s + (r.distance || 0), 0),
+      totalRides: commRides.length,
+      totalCamps: 0
+    };
+  }
+
+  if (!user) {
+    user = {
+      username,
+      name: username,
+      avatar: '🏍',
+      bio: `@${username} — ROTADAN Gezgini`,
+      totalDistance: 0,
+      totalRides: commRides.length,
+      totalCamps: 0
+    };
+  }
 
   const following = followingData();
   const isFollowing = following.includes(username);
@@ -2608,18 +3155,17 @@ function openFriendProfile(username) {
     </div>
     <div class="profile-stat-card">
       <span class="stat-icon">🚀</span>
-      <span class="stat-value">${user.totalRides}</span>
+      <span class="stat-value">${user.totalRides || commRides.length}</span>
       <span class="stat-label">Sürüş</span>
     </div>
     <div class="profile-stat-card">
       <span class="stat-icon">⛺</span>
-      <span class="stat-value">${user.totalCamps}</span>
+      <span class="stat-value">${user.totalCamps || 0}</span>
       <span class="stat-label">Kamp</span>
     </div>
   `;
 
   // Arkadaşın paylaştığı rotalar
-  const commRides = communityRidesData().filter(r => r.author?.username === username);
   $('friend-modal-rides-count').textContent = commRides.length;
 
   const ridesListEl = $('friend-modal-rides-list');
@@ -3139,12 +3685,21 @@ function initCinematicAnimation(r) {
     opacity: 0.95
   }).addTo(cinematicMapInstance);
 
-  // Hareket eden parlayan pilot işaretçi
+  // Hareket eden 3D araç simgesi (Motosiklet, bisiklet, yürüyüş veya kamp)
+  const modeTracer = getModeTracer(r.mode || 'moto');
   const tracerIcon = L.divIcon({
-    html: '<div style="width:20px; height:20px; border-radius:50%; background:#fff; border:3px solid #ff5a36; box-shadow:0 0 16px #ff5a36, 0 0 30px #ff8c42;"></div>',
-    className: 'tracer-dot',
-    iconSize: [20, 20],
-    iconAnchor: [10, 10]
+    html: `<div style="
+      width:46px; height:46px; border-radius:50%;
+      background:rgba(12,15,16,0.9);
+      border:3px solid ${modeTracer.color};
+      box-shadow:0 0 16px ${modeTracer.color}, 0 0 32px ${modeTracer.color}80;
+      display:flex; align-items:center; justify-content:center;
+      font-size:24px; animation:tracerPulse 1s ease-in-out infinite alternate;
+      cursor:pointer;
+    ">${modeTracer.emoji}</div>`,
+    className: 'tracer-dot-3d',
+    iconSize: [46, 46],
+    iconAnchor: [23, 23]
   });
 
   const tracerMarker = L.marker(latlngs[0], { icon: tracerIcon }).addTo(cinematicMapInstance);

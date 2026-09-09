@@ -242,6 +242,15 @@
       <!-- PROFİL GÖRÜNÜMÜ -->
       <section id="profile-view" class="view">
 
+        <!-- Profil Giriş / Hesap Kartı -->
+        <div class="profile-auth-badge" id="profile-auth-badge">
+          <div>
+            <strong id="auth-status-username" style="font-size:13px;">@gezgin</strong>
+            <p id="auth-status-sub" style="font-size:11px; color:var(--text-muted);">Çevrimdışı Profil</p>
+          </div>
+          <button id="auth-action-btn" class="dialog-button confirm-btn" style="padding: 6px 12px; font-size:11px; margin:0;" onclick="openAuthDialog()">Hesap / Giriş</button>
+        </div>
+
         <!-- Profil Başlık Kartı -->
         <div class="profile-hero">
           <div class="profile-avatar" id="profile-avatar" onclick="openProfileEdit()">🏍</div>
@@ -396,6 +405,9 @@
           </div>
         </div>
 
+        <!-- Durak ve Fotoğraf Listesi (Instagram Story Paylaşım Butonları ile) -->
+        <div id="detail-stops-photos-container" style="margin: 10px 0;"></div>
+
         <div class="dialog-actions vertical-actions">
           <button id="detail-cinematic-btn" class="dialog-button primary-btn" style="background:linear-gradient(135deg, #e056fd, #686de0); color:#fff;" onclick="playCinematicRide()">🎥 3D Sinematik Oynat (Relive Tarzı)</button>
           <button id="detail-show-map-btn" class="dialog-button primary-btn">Haritada Göster</button>
@@ -509,9 +521,9 @@
         <button id="close-share-card-btn" class="close-icon-button" aria-label="Kapat">✕</button>
       </div>
       <div class="share-dialog-body">
-        <!-- 1080x1080 Canvas Önizlemesi -->
+        <!-- 1080x1920 Instagram Story Canvas Önizlemesi -->
         <div class="share-canvas-wrapper">
-          <canvas id="share-card-canvas" width="1080" height="1080"></canvas>
+          <canvas id="share-card-canvas" width="1080" height="1920"></canvas>
         </div>
 
         <!-- 3 Fotoğraf Seçim Slotu -->
@@ -733,6 +745,53 @@
         <p style="font-size:12px; color:var(--text-muted); margin-top:6px;">Hareket aniden durdu. 30 saniye içinde iptal edilmezse acil durum kişinize canlı konumunuz iletilecektir.</p>
         <div class="sos-countdown-circle" id="sos-countdown-num">30</div>
         <button class="dialog-button danger-btn" style="width:100%; padding:14px; font-size:15px;" onclick="cancelSOS()">İYİYİM / İPTAL ET</button>
+      </div>
+    </dialog>
+
+    <!-- Hesap / Giriş Yap & Kayıt Ol Modalı -->
+    <dialog id="auth-dialog">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">ROTADAN HESABI</p>
+            <h2 id="auth-modal-title">Giriş Yap</h2>
+          </div>
+          <button class="close-icon-button" onclick="$('auth-dialog').close()" aria-label="Kapat">✕</button>
+        </div>
+
+        <!-- Sekmeler: Giriş / Kayıt -->
+        <div class="install-tabs" style="margin-bottom:14px; border-radius:12px; overflow:hidden; border:1px solid var(--border);">
+          <button type="button" id="tab-auth-login-btn" class="tab-btn active" style="padding:10px;" onclick="switchAuthTab('login')">Giriş Yap</button>
+          <button type="button" id="tab-auth-register-btn" class="tab-btn" style="padding:10px;" onclick="switchAuthTab('register')">Hesap Oluştur</button>
+        </div>
+
+        <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+          <div class="input-group" id="auth-fullname-group" style="display:none;">
+            <label for="auth-fullname-input">Adın Soyadın</label>
+            <input id="auth-fullname-input" type="text" placeholder="Örn. Ali Yılmaz" maxlength="40" autocomplete="name" />
+          </div>
+
+          <div class="input-group">
+            <label for="auth-username-input">Kullanıcı Adı</label>
+            <input id="auth-username-input" type="text" placeholder="kullanici_adi" required maxlength="24" autocomplete="username" />
+          </div>
+
+          <div class="input-group">
+            <label for="auth-password-input">Şifre</label>
+            <input id="auth-password-input" type="password" placeholder="••••••••" required minlength="4" autocomplete="current-password" />
+          </div>
+
+          <div id="auth-error-msg" style="color:#e74c3c; font-size:12px; margin-bottom:8px; display:none;"></div>
+
+          <div class="dialog-actions" style="margin-top:12px;">
+            <button type="button" class="dialog-button cancel-btn" onclick="$('auth-dialog').close()">Vazgeç</button>
+            <button type="submit" id="auth-submit-btn" class="dialog-button confirm-btn">Giriş Yap</button>
+          </div>
+        </form>
+
+        <div id="auth-logout-section" style="margin-top:16px; border-top:1px solid var(--border); padding-top:12px; display:none; text-align:center;">
+          <button type="button" class="dialog-button danger-btn" onclick="handleLogout()" style="width:100%;">Çıkış Yap</button>
+        </div>
       </div>
     </dialog>
 
