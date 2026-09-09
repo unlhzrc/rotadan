@@ -34,9 +34,9 @@ const $ = (id) => document.getElementById(id);
 const map = L.map('map', { zoomControl: false }).setView(TR_CENTER, 6);
 const routeMap = L.map('all-routes-map', { zoomControl: false }).setView(TR_CENTER, 6);
 
-// Harita Katmanları — Ücretsiz, API anahtarsız Carto Dark tiles
+// Harita Katmanları — %100 Ücretsiz, API anahtarsız ve filigransız Açık Kaynak Harita
 [map, routeMap].forEach(m => {
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: ''
   }).addTo(m);
@@ -2623,7 +2623,7 @@ function renderCommunityFeed() {
           boxZoom: false
         });
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: ''
         }).addTo(miniMap);
@@ -3665,8 +3665,9 @@ function initCinematicAnimation(r) {
     attributionControl: false
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: ''
   }).addTo(cinematicMapInstance);
 
   const pts = r.points;

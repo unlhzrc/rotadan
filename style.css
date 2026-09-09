@@ -2372,8 +2372,16 @@ input[type="datetime-local"] {
 }
 
 /* Harita "API Key Required" & Attribution Gizleme */
-.leaflet-control-attribution {
+.leaflet-control-attribution,
+.leaflet-control-container .leaflet-bottom.leaflet-right {
   display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+/* Şık Koyu Harita Teması (Açık Kaynak, %100 Temiz ve Filigransız) */
+.leaflet-tile {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
 }
 
 /* 3D Araç Takip Pulsing Animasyonu */
