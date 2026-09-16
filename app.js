@@ -89,12 +89,53 @@ const duration = ms => {
   return `${String(h).padStart(2, '0')}:${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// LocalStorage Entegrasyonu
-const rides = () => JSON.parse(localStorage.getItem('moto-iz-rides') || '[]');
-const setRides = r => localStorage.setItem('moto-iz-rides', JSON.stringify(r));
+// LocalStorage ve Global Durum Entegrasyonu
+function rides() { return JSON.parse(localStorage.getItem('moto-iz-rides') || '[]'); }
+function setRides(r) { localStorage.setItem('moto-iz-rides', JSON.stringify(r)); }
 
-const camps = () => JSON.parse(localStorage.getItem('moto-iz-camps') || '[]');
-const setCamps = c => localStorage.setItem('moto-iz-camps', JSON.stringify(c));
+function camps() { return JSON.parse(localStorage.getItem('moto-iz-camps') || '[]'); }
+function setCamps(c) { localStorage.setItem('moto-iz-camps', JSON.stringify(c)); }
+
+function accountsData() { return JSON.parse(localStorage.getItem('moto-iz-accounts') || '[]'); }
+function setAccountsData(accs) { localStorage.setItem('moto-iz-accounts', JSON.stringify(accs)); }
+
+function currentUsername() { return localStorage.getItem('moto-iz-current-user') || ''; }
+function setCurrentUsername(u) {
+  if (u) localStorage.setItem('moto-iz-current-user', u);
+  else localStorage.removeItem('moto-iz-current-user');
+}
+
+const defaultProfile = {
+  username: 'gezgin',
+  name: 'Gezgin',
+  avatar: '🏍',
+  joinedAt: Date.now()
+};
+
+function profileData() {
+  const p = localStorage.getItem('moto-iz-profile');
+  return p ? JSON.parse(p) : defaultProfile;
+}
+function setProfileData(p) { localStorage.setItem('moto-iz-profile', JSON.stringify(p)); }
+
+function followingData() {
+  const data = localStorage.getItem('moto-iz-following');
+  return data ? JSON.parse(data) : [];
+}
+function setFollowingData(f) { localStorage.setItem('moto-iz-following', JSON.stringify(f)); }
+
+function communityRidesData() {
+  const data = localStorage.getItem('moto-iz-community-rides');
+  return data ? JSON.parse(data) : [];
+}
+function setCommunityRidesData(r) { localStorage.setItem('moto-iz-community-rides', JSON.stringify(r)); }
+
+function eventsData() { return JSON.parse(localStorage.getItem('moto-iz-events') || '[]'); }
+function setEventsData(evs) { localStorage.setItem('moto-iz-events', JSON.stringify(evs)); }
+
+function openPhotoModal(url, caption) {
+  openPhotoZoomDirect(url, caption);
+}
 
 // Arayüz Mod Seçici Oluşturucu
 function renderModeSelector() {
@@ -1227,20 +1268,6 @@ $('clear-rides').onclick = () => {
   }
 };
 
-// PROFİL YÖNETİMİ
-const defaultProfile = {
-  name: 'Gezgin',
-  avatar: '🏍',
-  joinedAt: Date.now()
-};
-
-const profileData = () => {
-  const p = localStorage.getItem('moto-iz-profile');
-  return p ? JSON.parse(p) : defaultProfile;
-};
-
-const setProfileData = p => localStorage.setItem('moto-iz-profile', JSON.stringify(p));
-
 // Profil Seçilebilir Avatarları
 const AVATARS = ['🏍', '🚲', '🥾', '⛺', '🏎️', '🛵', '🧭', '⛰️', '🏕️', '🛠️', '🏁', '⭐'];
 let selectedAvatar = '🏍';
@@ -1538,9 +1565,6 @@ if (saveProfileBtn) {
 }
 
 // ETKİNLİK YÖNETİMİ VE CANLI GERİ SAYIM
-const eventsData = () => JSON.parse(localStorage.getItem('moto-iz-events') || '[]');
-const setEventsData = evs => localStorage.setItem('moto-iz-events', JSON.stringify(evs));
-
 let countdownTimerInterval = null;
 
 // Canlı Geri Sayım Hesaplayıcı
@@ -1792,67 +1816,38 @@ function shareEvent(index) {
 }
 
 // Alt Navigasyon Sekme Değiştirici
-document.querySelectorAll('.nav-item').forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    
-    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-    $(b.dataset.view).classList.add('active');
-    
-    // Harita yenileme, etkinlik veya profil güncelleme tetikleyicisi
-    if (b.dataset.view === 'all-routes-view') {
-      setTimeout(() => routeMap.invalidateSize(), 150);
-    } else if (b.dataset.view === 'home-view') {
-      setTimeout(() => map.invalidateSize(), 150);
-    } else if (b.dataset.view === 'events-view') {
-      renderEvents();
-    } else if (b.dataset.view === 'profile-view') {
-      renderProfile();
-    }
-  };
-});
+function switchView(viewId) {
+  document.querySelectorAll('.nav-item').forEach(x => {
+    x.classList.toggle('active', x.dataset.view === viewId);
+  });
+  document.querySelectorAll('.view').forEach(x => {
+    x.classList.toggle('active', x.id === viewId);
+  });
 
-// Arayüz Koyu / Açık Tema Yönetimi
-const themeButton = $('theme-button');
-themeButton.onclick = () => {
-  document.body.classList.toggle('light');
-  const isLight = document.body.classList.contains('light');
-  localStorage.setItem('moto-iz-theme', isLight ? 'light' : 'dark');
-};
-
-// Tema Yükle
-const savedTheme = localStorage.getItem('moto-iz-theme');
-if (savedTheme === 'light') {
-  document.body.classList.add('light');
+  // Harita yenileme, topluluk, etkinlik veya profil güncelleme tetikleyicisi
+  if (viewId === 'all-routes-view') {
+    setTimeout(() => routeMap.invalidateSize(), 150);
+  } else if (viewId === 'home-view') {
+    setTimeout(() => map.invalidateSize(), 150);
+  } else if (viewId === 'community-view') {
+    renderCommunityFeed();
+  } else if (viewId === 'events-view') {
+    renderEvents();
+  } else if (viewId === 'profile-view') {
+    renderProfile();
+    if (typeof renderMyFriendsInProfile === 'function') renderMyFriendsInProfile();
+  }
 }
 
-// Test aşamasında eklenen sahte verileri temizle
-if (localStorage.getItem('moto-iz-clean-v3') !== 'true') {
-  const comm = localStorage.getItem('moto-iz-community-rides');
-  if (comm && comm.includes('selin_touring')) {
-    localStorage.removeItem('moto-iz-community-rides');
-  }
-  const fol = localStorage.getItem('moto-iz-following');
-  if (fol && fol.includes('selin_touring')) {
-    localStorage.removeItem('moto-iz-following');
-  }
-  localStorage.setItem('moto-iz-clean-v3', 'true');
+function setupNavigation() {
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.onclick = () => {
+      if (b.dataset.view) switchView(b.dataset.view);
+    };
+  });
 }
 
-// UYGULAMAYI BAŞLAT
-renderModeSelector();
-renderTotals();
-renderRides();
-renderCamps();
-renderAllRoutes();
-renderProfile();
-renderEvents();
-initCurrentLocation();
-
-// Saniyelik Canlı Geri Sayım Zamanlayıcısını Başlat
-if (countdownTimerInterval) clearInterval(countdownTimerInterval);
-countdownTimerInterval = setInterval(updateCountdowns, 1000);
+// (Başlangıç yüklemesi dosya sonundaki initApp() fonksiyonuna taşındı)
 
 // ============================================================
 // SOSYAL MEDYA PAYLAŞIM KARTI — Canvas 1080×1080 px
@@ -2443,20 +2438,6 @@ async function nativeShareCard(targetKind) {
 const DEFAULT_COMMUNITY_USERS = [];
 const DEFAULT_COMMUNITY_RIDES = [];
 
-// Topluluk Depolama Yardımcıları
-const communityRidesData = () => {
-  const data = localStorage.getItem('moto-iz-community-rides');
-  return data ? JSON.parse(data) : [];
-};
-
-const setCommunityRidesData = r => localStorage.setItem('moto-iz-community-rides', JSON.stringify(r));
-
-const followingData = () => {
-  const data = localStorage.getItem('moto-iz-following');
-  return data ? JSON.parse(data) : [];
-};
-
-const setFollowingData = f => localStorage.setItem('moto-iz-following', JSON.stringify(f));
 
 // Topluluğa Rota Yayınlama
 function publishToCommunity(newRide) {
@@ -2773,15 +2754,6 @@ function openPhotoZoomDirect(url, caption) {
 // ============================================================
 // HESAP, GİRİŞ / KAYIT VE ÇOK KULLANICILI PROFİL SİSTEMİ
 // ============================================================
-
-const accountsData = () => JSON.parse(localStorage.getItem('moto-iz-accounts') || '[]');
-const setAccountsData = accs => localStorage.setItem('moto-iz-accounts', JSON.stringify(accs));
-
-const currentUsername = () => localStorage.getItem('moto-iz-current-user') || '';
-const setCurrentUsername = u => {
-  if (u) localStorage.setItem('moto-iz-current-user', u);
-  else localStorage.removeItem('moto-iz-current-user');
-};
 
 let currentAuthTab = 'login';
 
@@ -3385,35 +3357,6 @@ function resetCloudSettings() {
   alert('Varsayılan bulut motoruna dönüldü.');
 }
 
-// Navigasyon Olaylarını Güncelle
-document.querySelectorAll('.nav-item').forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    
-    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-    const targetView = $(b.dataset.view);
-    if (targetView) targetView.classList.add('active');
-    
-    // Harita yenileme, topluluk, etkinlik veya profil güncelleme tetikleyicisi
-    if (b.dataset.view === 'all-routes-view') {
-      setTimeout(() => routeMap.invalidateSize(), 150);
-    } else if (b.dataset.view === 'home-view') {
-      setTimeout(() => map.invalidateSize(), 150);
-    } else if (b.dataset.view === 'community-view') {
-      renderCommunityFeed();
-    } else if (b.dataset.view === 'events-view') {
-      renderEvents();
-    } else if (b.dataset.view === 'profile-view') {
-      renderProfile();
-      renderMyFriendsInProfile();
-    }
-  };
-});
-
-// Topluluk & Sosyal Modülleri Başlat
-renderCommunityFeed();
-renderMyFriendsInProfile();
 
 // ============================================================
 // MODÜL 1: YÜKSEKLİK VE EĞİM PROFİLİ MOTORU (ELEVATION ENGINE)
@@ -3833,13 +3776,72 @@ function executeEmergencySOS() {
   }
 }
 
-// Kaza Algılama ve Hava Durumu Servislerini Başlat
-initCrashDetection();
-refreshLiveWeather();
+// ============================================================
+// UYGULAMAYI BAŞLATMA VE BAŞLANGIÇ YÜKLEMESİ
+// ============================================================
 
-// PWA Service Worker Kaydı (Çevrimdışı Çalışma ve Hızlı Yükleme)
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
+function initApp() {
+  // 1. Tema Ayarı
+  const savedTheme = localStorage.getItem('moto-iz-theme');
+  if (savedTheme === 'light') {
+    document.body.classList.add('light');
+  }
+
+  const themeBtn = $('theme-button');
+  if (themeBtn) {
+    themeBtn.onclick = () => {
+      document.body.classList.toggle('light');
+      const isLight = document.body.classList.contains('light');
+      localStorage.setItem('moto-iz-theme', isLight ? 'light' : 'dark');
+    };
+  }
+
+  // 2. Eski Test Verilerini Temizle
+  if (localStorage.getItem('moto-iz-clean-v3') !== 'true') {
+    const comm = localStorage.getItem('moto-iz-community-rides');
+    if (comm && comm.includes('selin_touring')) {
+      localStorage.removeItem('moto-iz-community-rides');
+    }
+    const fol = localStorage.getItem('moto-iz-following');
+    if (fol && fol.includes('selin_touring')) {
+      localStorage.removeItem('moto-iz-following');
+    }
+    localStorage.setItem('moto-iz-clean-v3', 'true');
+  }
+
+  // 3. Arayüz Bileşenlerini Render Et
+  setupNavigation();
+  renderModeSelector();
+  renderTotals();
+  renderRides();
+  renderCamps();
+  renderAllRoutes();
+  renderProfile();
+  renderEvents();
+  renderCommunityFeed();
+  renderMyFriendsInProfile();
+  initCurrentLocation();
+
+  // 4. Saniyelik Canlı Geri Sayım Zamanlayıcısını Başlat
+  if (countdownTimerInterval) clearInterval(countdownTimerInterval);
+  countdownTimerInterval = setInterval(updateCountdowns, 1000);
+
+  // 5. Kaza Algılama ve Hava Durumu
+  initCrashDetection();
+  refreshLiveWeather();
+
+  // 6. PWA Service Worker Kaydı
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
 }
+
+// Sayfa Hazır Olduğunda Başlat
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
+
