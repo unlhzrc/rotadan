@@ -1,24 +1,31 @@
 {
-  "name": "ROTADAN — Motosiklet, Gezi & Kamp GPS Takip",
-  "short_name": "ROTADAN",
-  "description": "Motosiklet, bisiklet, yürüyüş ve kamp rotaları için GPS takip, topluluk akışı ve sosyal rota keşif uygulaması.",
-  "start_url": "./index.html",
+  "name": "EH Barber House",
+  "short_name": "EH Barber",
+  "description": "EH Barber House — Enes, Hasan ve Deniz ile online randevu alın.",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0c0f10",
-  "theme_color": "#0c0f10",
   "orientation": "portrait",
+  "background_color": "#15120d",
+  "theme_color": "#15120d",
   "icons": [
     {
-      "src": "icons/icon-192.png",
+      "src": "./icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-512.png",
+      "src": "./icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }
