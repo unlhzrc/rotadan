@@ -391,6 +391,7 @@ function initForm() {
 
     renderSlots();
     renderMyBookings();
+    buildAdminDash();
 
     // WhatsApp Mesajı
     const wa = [
@@ -561,9 +562,11 @@ window.cancelBk    = id => {
   localStorage.setItem('eh_barber_bookings', JSON.stringify(updated));
   renderMyBookings();
   renderSlots();
+  buildAdminDash();
   showToast('Randevu iptal edildi.');
 };
 
+// ─────────────────────────────────────────
 // ─────────────────────────────────────────
 //  YÖNETİCİ PANELİ
 // ─────────────────────────────────────────
@@ -578,6 +581,23 @@ function initAdmin() {
 
   const ADMIN_PASSWORD = 'Enes.Hasan.2026.*';
 
+  // Oturum kontrolü (Sayfa yenilendiğinde tekrar şifre sormasın)
+  if (sessionStorage.getItem('eh_admin_auth') === '1') {
+    authBox?.classList.add('hidden');
+    panel?.classList.remove('hidden');
+    loadBusinessProfile();
+    buildAdminDash();
+  }
+
+  // Çıkış butonu
+  document.getElementById('btn-admin-logout')?.addEventListener('click', () => {
+    sessionStorage.removeItem('eh_admin_auth');
+    panel?.classList.add('hidden');
+    authBox?.classList.remove('hidden');
+    if (passEl) passEl.value = '';
+    showToast('Yönetici oturumu kapatıldı.');
+  });
+
   const togglePass = document.getElementById('toggle-password');
   togglePass?.addEventListener('click', () => {
     if (!passEl) return;
@@ -588,6 +608,7 @@ function initAdmin() {
   const tryLogin = () => {
     const pass = (passEl?.value || '').trim();
     if (pass === ADMIN_PASSWORD) {
+      sessionStorage.setItem('eh_admin_auth', '1');
       authBox?.classList.add('hidden');
       panel?.classList.remove('hidden');
       loadBusinessProfile();
@@ -600,6 +621,10 @@ function initAdmin() {
 
   loginBtn.addEventListener('click', tryLogin);
   passEl?.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+
+  // Berber filtre değişimleri
+  document.getElementById('admin-barber-filter-today')?.addEventListener('change', () => buildAdminDash());
+  document.getElementById('admin-barber-filter-all')?.addEventListener('change', () => buildAdminDash());
 
   // İşletme profili kaydet
   const saveProfile = document.getElementById('btn-save-profile');
@@ -680,7 +705,7 @@ function initAdmin() {
 
   btnCancel?.addEventListener('click', () => walkinModal?.classList.remove('show'));
 
-  // Sekme geçişi
+  // Sekme geçişi (Bugün / Tüm Randevular / Profil)
   document.querySelectorAll('.admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
@@ -688,7 +713,7 @@ function initAdmin() {
       btn.classList.add('active');
       const target = document.getElementById(btn.dataset.panel);
       if (target) target.classList.remove('hidden');
-      if (btn.dataset.panel === 'panel-today') buildAdminDash();
+      buildAdminDash();
     });
   });
 }
@@ -735,32 +760,93 @@ function loadBusinessProfile() {
   } catch {}
 }
 
+function renderAdminRow(b, showDate) {
+  const cleanPhone = (b.customerPhone || '').replace(/\D/g, '');
+  const waNum = cleanPhone.startsWith('90') ? cleanPhone : '90' + cleanPhone.replace(/^0/, '');
+  const waMsg = encodeURIComponent(`Merhaba ${b.customerName}, EH Barber House randevunuz hk.`);
+  const waUrl = `https://api.whatsapp.com/send?phone=${waNum}&text=${waMsg}`;
+
+  return `
+    <div class="admin-row">
+      <div class="admin-row-left">
+        <div class="time-badge">${b.time}</div>
+        <div>
+          <div class="cust-name">${b.customerName}</div>
+          <div class="cust-detail">${b.serviceNames} · <strong>${b.barberName}</strong>${showDate ? ` · <span style="color:var(--gold);">${b.dateFormatted || b.dateStr}</span>` : ''}</div>
+          ${b.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">💬 Not: ${b.notes}</div>` : ''}
+        </div>
+      </div>
+      <div class="admin-row-actions">
+        ${cleanPhone && cleanPhone !== 'Elden' ? `
+          <a href="tel:${b.customerPhone}" class="btn-action" title="Müşteriyi Ara" style="padding:6px 9px;">📞</a>
+          <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="btn-action wa-action-btn" title="Müşteriye WhatsApp ile Yaz" style="padding:6px 9px;">💬</a>
+        ` : ''}
+        <button class="btn-action danger" style="padding:6px 9px;" onclick="cancelBk('${b.id}')" title="İptal Et">✕</button>
+      </div>
+    </div>`;
+}
+
 function buildAdminDash() {
+  const allBookings = getBookings();
   const todayStr = formatYMD(new Date());
-  const list = getBookings()
-    .filter(b => b.dateStr === todayStr && b.status !== 'cancelled')
-    .sort((a, b) => a.time.localeCompare(b.time));
+
+  // 1. BUGÜNKÜ RANDEVULAR
+  const filterToday = document.getElementById('admin-barber-filter-today')?.value || 'all';
+  let todayList = allBookings
+    .filter(b => b.status !== 'cancelled' && (b.dateStr === todayStr || (!b.dateStr && b.dateFormatted && b.dateFormatted.includes('Bugün'))))
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+  if (filterToday !== 'all') {
+    const bid = parseInt(filterToday, 10);
+    todayList = todayList.filter(b => b.barberId === bid);
+  }
+
   const cEl = document.getElementById('admin-total-count');
   const lEl = document.getElementById('admin-schedule-list');
-  if (cEl) cEl.textContent = list.length;
-  if (!lEl) return;
+  if (cEl) cEl.textContent = todayList.length;
 
-  lEl.innerHTML = list.length === 0
-    ? '<div style="text-align:center;padding:22px;color:var(--dim);font-size:13px;">Bugün için randevu yok.</div>'
-    : list.map(b => `
-        <div class="admin-row">
-          <div class="admin-row-left">
-            <div class="time-badge">${b.time}</div>
-            <div>
-              <div class="cust-name">${b.customerName}</div>
-              <div class="cust-detail">${b.serviceNames} · ${b.barberName}</div>
-            </div>
-          </div>
-          <div class="admin-row-actions">
-            <a href="tel:${b.customerPhone}" class="btn-action" style="padding:6px 10px;">📞</a>
-            <button class="btn-action danger" style="padding:6px 10px;" onclick="cancelBk('${b.id}')">✕</button>
-          </div>
-        </div>`).join('');
+  if (lEl) {
+    lEl.innerHTML = todayList.length === 0
+      ? '<div style="text-align:center;padding:26px;color:var(--dim);font-size:13px;">Bugün için bekleyen randevu yok.</div>'
+      : todayList.map(b => renderAdminRow(b, false)).join('');
+  }
+
+  // 2. TÜM RANDEVULAR (Tüm Yaklaşan Tarihler)
+  const filterAll = document.getElementById('admin-barber-filter-all')?.value || 'all';
+  let activeAll = allBookings
+    .filter(b => b.status !== 'cancelled')
+    .sort((a, b) => {
+      const dCmp = (a.dateStr || '').localeCompare(b.dateStr || '');
+      return dCmp !== 0 ? dCmp : (a.time || '').localeCompare(b.time || '');
+    });
+
+  if (filterAll !== 'all') {
+    const bid = parseInt(filterAll, 10);
+    activeAll = activeAll.filter(b => b.barberId === bid);
+  }
+
+  const allCountEl = document.getElementById('admin-all-count');
+  const allListEl = document.getElementById('admin-all-schedule-list');
+  if (allCountEl) allCountEl.textContent = activeAll.length;
+
+  if (allListEl) {
+    if (activeAll.length === 0) {
+      allListEl.innerHTML = '<div style="text-align:center;padding:26px;color:var(--dim);font-size:13px;">Kayıtlı randevu bulunmuyor.</div>';
+    } else {
+      let lastDate = '';
+      let html = '';
+      activeAll.forEach(b => {
+        const isToday = b.dateStr === todayStr;
+        const dateTitle = b.dateFormatted || b.dateStr;
+        if (dateTitle !== lastDate) {
+          lastDate = dateTitle;
+          html += `<div class="admin-date-sep">📅 ${dateTitle}${isToday ? ' (Bugün)' : ''}</div>`;
+        }
+        html += renderAdminRow(b, true);
+      });
+      allListEl.innerHTML = html;
+    }
+  }
 }
 window.renderAdminDashboard = buildAdminDash;
 
@@ -771,14 +857,27 @@ function initNav() {
   document.querySelectorAll('.nav-tab').forEach(btn =>
     btn.addEventListener('click', () => switchTab(btn.dataset.tab))
   );
+
+  // Başka sekmede randevu oluşturulursa anında senkronize et
+  window.addEventListener('storage', () => {
+    renderMyBookings();
+    renderSlots();
+    buildAdminDash();
+  });
 }
 
 function switchTab(id) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === id));
   document.querySelectorAll('.view-section').forEach(s => s.classList.toggle('active', s.id === id));
   window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // Yönetici sekmesine geçildiğinde listeyi tazele
+  if (id === 'tab-admin') {
+    buildAdminDash();
+  }
 }
 window.switchTab = switchTab;
+
 
 // ─────────────────────────────────────────
 //  TOAST

@@ -215,9 +215,19 @@
       </div>
       <div id="admin-panel-content" class="hidden">
 
+        <!-- ADMIN ÜST BAŞLIK & ÇIKIŞ -->
+        <div class="admin-header-row">
+          <div>
+            <span class="admin-badge">Yönetici Paneli</span>
+            <small id="admin-logged-text" style="color:var(--dim);display:block;margin-top:2px;">Oturum Açık</small>
+          </div>
+          <button id="btn-admin-logout" class="btn-ghost" style="color:var(--danger);font-size:12px;padding:6px 10px;cursor:pointer;">🚪 Çıkış</button>
+        </div>
+
         <!-- SEKMELER -->
         <div class="admin-tabs">
-          <button class="admin-tab active" data-panel="panel-today">📅 Bugünkü Randevular</button>
+          <button class="admin-tab active" data-panel="panel-today">📅 Bugün</button>
+          <button class="admin-tab" data-panel="panel-all">📋 Tüm Randevular</button>
           <button class="admin-tab" data-panel="panel-profile">⚙️ İşletme Profili</button>
         </div>
 
@@ -225,12 +235,36 @@
         <div id="panel-today" class="admin-panel-body">
           <div class="admin-toolbar">
             <div class="stat-box"><span class="stat-num" id="admin-total-count">0</span><span class="stat-lbl">Bugünkü Randevu</span></div>
-            <button id="btn-admin-add-walkin" class="btn-sm">+ Elden Müşteri</button>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="admin-barber-filter-today" class="admin-filter-select">
+                <option value="all">Tüm Berberler</option>
+                <option value="1">Enes ÖZKAN</option>
+                <option value="2">Hasan KABLAN</option>
+                <option value="3">Deniz ŞEKER</option>
+              </select>
+              <button id="btn-admin-add-walkin" class="btn-sm">+ Elden</button>
+            </div>
           </div>
           <div class="admin-schedule" id="admin-schedule-list"></div>
         </div>
 
-        <!-- PANEL 2: İŞLETME PROFİLİ -->
+        <!-- PANEL 2: TÜM RANDEVULAR -->
+        <div id="panel-all" class="admin-panel-body hidden">
+          <div class="admin-toolbar">
+            <div class="stat-box"><span class="stat-num" id="admin-all-count">0</span><span class="stat-lbl">Toplam Randevu</span></div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <select id="admin-barber-filter-all" class="admin-filter-select">
+                <option value="all">Tüm Berberler</option>
+                <option value="1">Enes ÖZKAN</option>
+                <option value="2">Hasan KABLAN</option>
+                <option value="3">Deniz ŞEKER</option>
+              </select>
+            </div>
+          </div>
+          <div class="admin-schedule" id="admin-all-schedule-list"></div>
+        </div>
+
+        <!-- PANEL 3: İŞLETME PROFİLİ -->
         <div id="panel-profile" class="admin-panel-body hidden">
           <div class="profile-card">
             <h4>İşletme Bilgileri</h4>
